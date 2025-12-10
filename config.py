@@ -1,8 +1,11 @@
 import configparser
 import os
 
+# 是否使用 dins/fns 数据源
 FETCH_DINS = False
 FETCH_FNS = True
+# 本地航警数据过期时间，单位秒
+FETCH_EXPIRE_TIME = 600
 
 EXCLUDE_RECTS = [
     # {'lat_min': 39.303183, 'lat_max': 40.856476, 'lon_min': 101.300003, 'lon_max': 105.242712},
