@@ -1,3 +1,4 @@
+import base64
 import configparser
 import logging
 import os
@@ -9,11 +10,14 @@ import time
 import traceback
 import webbrowser
 from datetime import datetime
-import base64
+from io import BytesIO
 from tkinter import filedialog
+
 import webview
+import win32clipboard
+from PIL import Image
 from flask import Flask, jsonify, render_template, send_from_directory
-from flask import request  # 添加request导入
+from flask import request
 
 from fetch.FNS_NOTAM_ARCHIVE_SEARCH import FNS_NOTAM_ARCHIVE_SEARCH
 from fetch.FNS_NOTAM_SEARCH import FNS_NOTAM_SEARCH
@@ -232,8 +236,8 @@ WEBVIEW_HOST = config.get('WEBVIEW', 'host', fallback=HOST)
 WEBVIEW_PORT = config.getint('WEBVIEW', 'port', fallback=PORT)
 
 app = Flask(__name__)
-app.template_folder = 'templates'
-app.static_folder = 'static'
+app.template_folder = 'web/templates'
+app.static_folder = 'web/static'
 
 
 class LogCapture:
@@ -320,7 +324,7 @@ def load_stat(filename):
 
 @app.route('/scripts/<path:filename>')
 def load_scripts(filename):
-    return send_from_directory('scripts', filename)
+    return send_from_directory('web/scripts', filename)
 
 
 @app.route('/config')
@@ -513,29 +517,26 @@ def save_image():
             with open(file_path, 'wb') as f:
                 f.write(data)
             try:
-                from PIL import Image
-                import win32clipboard
-                from io import BytesIO
 
                 # 从字节数据创建图片对象
                 img = Image.open(BytesIO(data))
-                
+
                 # 转换为BMP格式用于剪贴板
                 output = BytesIO()
                 img.convert('RGB').save(output, 'BMP')
                 bmp_data = output.getvalue()[14:]  # 去掉BMP文件头
-                
+
                 # 复制到剪贴板
                 win32clipboard.OpenClipboard()
                 win32clipboard.EmptyClipboard()
                 win32clipboard.SetClipboardData(win32clipboard.CF_DIB, bmp_data)
                 win32clipboard.CloseClipboard()
-                
+
                 print("图片已复制到剪贴板")
             except Exception as e:
                 print(f"复制到剪贴板失败: {e}")
             return jsonify({"success": True, "filePath": os.path.abspath(file_path)})
-        
+
         else:
             return jsonify({"success": False, "message": "用户取消保存"})
     except Exception as e:
@@ -572,7 +573,7 @@ def wait_for_server(host, port, timeout=5):
 if __name__ == '__main__':
     flask_thread = threading.Thread(target=start_flask, daemon=True)
     flask_thread.start()
-    
+
     print("正在启动服务器...")
     if wait_for_server(HOST, PORT):
         print(f"服务器已就绪，启动窗口...")
