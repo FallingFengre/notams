@@ -36,7 +36,8 @@ function drawAllAutoNotams() {
             i,
             col,
             0,
-            dict.RAWMESSAGE?.[i] || ""
+            dict.RAWMESSAGE?.[i] || "",
+            dict.SOURCE?.[i] || 'DINS'
         );
         visibleState[i] = true;
     }

@@ -320,6 +320,7 @@ def FNS_NOTAM_SEARCH():
             "TIME": data_array[:, 2].tolist() if len(data_array) > 0 else [],
             "TRANSID": data_array[:, 3].tolist() if len(data_array) > 0 else [],
             "RAWMESSAGE": data_array[:, 4].tolist() if len(data_array) > 0 else [],
+            "SOURCE": ["FNS_NOTAM"] * len(data_array) if len(data_array) > 0 else [],
         }
     else:
         result = {
@@ -328,6 +329,7 @@ def FNS_NOTAM_SEARCH():
             "TIME": [],
             "TRANSID": [],
             "RAWMESSAGE": [],
+            "SOURCE": [],
         }
     return result
 # print(FNS_NOTAM_SEARCH())

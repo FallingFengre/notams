@@ -17,6 +17,8 @@ import config
 from service.fetch.FNS_NOTAM_ARCHIVE_SEARCH import FNS_NOTAM_ARCHIVE_SEARCH
 from service.fetch.FNS_NOTAM_SEARCH import FNS_NOTAM_SEARCH
 from service.fetch.dinsQueryWeb import dinsQueryWeb
+from service.fetch.MSA_NAV_SEARCH import MSA_NAV_SEARCH
+from service.fetch.MSI_NAV_SEARCH import MSI_NAV_SEARCH
 
 
 def parse_point(pt):
@@ -77,20 +79,181 @@ def seg_intersect(a, b, c, d):
     return False
 
 
+def coords_to_polygon(coords_str):
+    """
+    将坐标字符串转换为多边形点列表
+    """
+    pts = []
+    for part in coords_str.split('-'):
+        p = parse_point(part.strip())
+        if p:
+            pts.append(p)
+    return pts
+
+
+def polygon_area(poly):
+    """
+    计算多边形面积（使用Shoelace公式）
+    """
+    if len(poly) < 3:
+        return 0
+    n = len(poly)
+    area = 0
+    for i in range(n):
+        j = (i + 1) % n
+        area += poly[i][0] * poly[j][1]
+        area -= poly[j][0] * poly[i][1]
+    return abs(area) / 2
+
+
+def polygons_overlap_ratio(poly1, poly2):
+    """
+    估算两个多边形的重叠比例
+    使用采样点方法：检查一个多边形的点在另一个多边形内的比例
+    返回: (poly1内点在poly2中的比例, poly2内点在poly1中的比例)
+    """
+    if len(poly1) < 3 or len(poly2) < 3:
+        return 0, 0
+    
+    # 方法1: 检查顶点互相包含
+    poly1_in_poly2 = sum(1 for p in poly1 if point_in_poly(p[0], p[1], poly2))
+    poly2_in_poly1 = sum(1 for p in poly2 if point_in_poly(p[0], p[1], poly1))
+    
+    ratio1 = poly1_in_poly2 / len(poly1) if poly1 else 0
+    ratio2 = poly2_in_poly1 / len(poly2) if poly2 else 0
+    
+    # 如果顶点没有互相包含，检查边是否相交
+    if ratio1 == 0 and ratio2 == 0:
+        # 检查边相交
+        has_intersection = False
+        for i in range(len(poly1)):
+            a = poly1[i]
+            b = poly1[(i + 1) % len(poly1)]
+            for j in range(len(poly2)):
+                c = poly2[j]
+                d = poly2[(j + 1) % len(poly2)]
+                if seg_intersect(a, b, c, d):
+                    has_intersection = True
+                    break
+            if has_intersection:
+                break
+        
+        if has_intersection:
+            # 边相交，估算为部分重叠
+            return 0.3, 0.3
+    
+    return ratio1, ratio2
+
+
+def parse_time_range(t):
+    """
+    解析时间字符串，返回所有时间段的起止时间戳列表
+    """
+    try:
+        time_segments = t.split(';')
+        ranges = []
+        
+        for segment in time_segments:
+            segment = segment.strip()
+            if not segment:
+                continue
+            parts = segment.split(" UNTIL ")
+            if len(parts) == 2:
+                start = datetime.strptime(parts[0], "%d %b %H:%M %Y").timestamp()
+                end = datetime.strptime(parts[1], "%d %b %H:%M %Y").timestamp()
+                ranges.append((start, end))
+        
+        return ranges
+    except:
+        return []
+
+
+def time_overlap_ratio(time1, time2):
+    ranges1 = parse_time_range(time1)
+    ranges2 = parse_time_range(time2)
+    
+    if not ranges1 or not ranges2:
+        return 0, 0
+    
+    # 计算每个时间串的总时长
+    duration1 = sum(e - s for s, e in ranges1)
+    duration2 = sum(e - s for s, e in ranges2)
+    
+    if duration1 <= 0 or duration2 <= 0:
+        return 0, 0
+    
+    # 计算重叠时长
+    total_overlap = 0
+    for s1, e1 in ranges1:
+        for s2, e2 in ranges2:
+            overlap = max(0, min(e1, e2) - max(s1, s2))
+            total_overlap += overlap
+    
+    ratio1 = min(1.0, total_overlap / duration1)
+    ratio2 = min(1.0, total_overlap / duration2)
+    
+    return ratio1, ratio2
+
+
+def should_deduplicate(existing_entry, new_entry, coord_threshold=0.8, time_threshold=0.6):
+    exist_coords, exist_time, exist_source, exist_code = existing_entry
+    new_coords, new_time, new_source, new_code = new_entry
+    
+    # CODE完全相同，直接去重
+    if exist_code == new_code:
+        return True
+    
+    # 解析坐标为多边形
+    poly1 = coords_to_polygon(exist_coords)
+    poly2 = coords_to_polygon(new_coords)
+    
+    if not poly1 or not poly2:
+        return False
+    
+    # 计算坐标重叠
+    coord_ratio1, coord_ratio2 = polygons_overlap_ratio(poly1, poly2)
+    
+    # 如果坐标重叠不够，不去重
+    if coord_ratio1 < coord_threshold and coord_ratio2 < coord_threshold:
+        return False
+    
+    # 计算时间重叠
+    time_ratio1, time_ratio2 = time_overlap_ratio(exist_time, new_time)
+    
+    # 如果时间重叠也达标，则去重
+    if time_ratio1 >= time_threshold or time_ratio2 >= time_threshold:
+        return True
+    
+    return False
+
+
 def classify_data(data):
     codes = data.get("CODE", [])
     times = data.get("TIME", [])
 
-    # 解析时间区间
+    # 解析时间区间（支持多段时间窗口，用分号分隔）
     def parse_time(t):
-        """
-        例子: '25 NOV 04:01 2025 UNTIL 25 NOV 04:41 2025'
-        """
         try:
-            parts = t.split(" UNTIL ")
-            start = datetime.strptime(parts[0], "%d %b %H:%M %Y").timestamp()
-            end = datetime.strptime(parts[1], "%d %b %H:%M %Y").timestamp()
-            return start, end
+            # 分割多段时间窗口
+            time_segments = t.split(';')
+            all_starts = []
+            all_ends = []
+            
+            for segment in time_segments:
+                segment = segment.strip()
+                if not segment:
+                    continue
+                parts = segment.split(" UNTIL ")
+                if len(parts) == 2:
+                    start = datetime.strptime(parts[0], "%d %b %H:%M %Y").timestamp()
+                    end = datetime.strptime(parts[1], "%d %b %H:%M %Y").timestamp()
+                    all_starts.append(start)
+                    all_ends.append(end)
+            
+            if all_starts and all_ends:
+                # 返回整体范围的最早开始和最晚结束
+                return min(all_starts), max(all_ends)
+            return None, None
         except:
             return None, None
 
@@ -179,7 +342,7 @@ def extract_altitude(raw_message_lst):
                 upper_str = 'INF'
             ans.append(f"{lower_str} ~ {upper_str} 米")
         else:
-            ans.append('None')
+            ans.append('0')
     return ans
 
 
@@ -346,20 +509,43 @@ def fetch():
         "PLATID": [],
         "ALTITUDE": [],
         "RAWMESSAGE": [],
+        "SOURCE": [],
         "CLASSIFY": {},
         "NUM": 0,
     }
     source_num = 0
+    
+    # 用于去重：存储已添加的条目信息
+    # 去重优先级: FNS > MSA > MSI > DINS
+    # 格式: [(coords_str, time_str, source, code), ...]
+    added_entries = []
 
     if config.FETCH_DINS:
         dins_data = dinsQueryWeb(current_icao_codes)
         if dins_data.get("CODE"):
             source_num += 1
-            dataDict["CODE"].extend(dins_data["CODE"])
-            dataDict["COORDINATES"].extend(dins_data["COORDINATES"])
-            dataDict["TIME"].extend(dins_data["TIME"])
-            dataDict["PLATID"].extend(dins_data["TRANSID"])
-            dataDict["RAWMESSAGE"].extend(dins_data["RAWMESSAGE"])
+            for i, code in enumerate(dins_data["CODE"]):
+                coords = dins_data["COORDINATES"][i]
+                time_str = dins_data["TIME"][i]
+                source = dins_data.get("SOURCE", ["DINS"] * len(dins_data["CODE"]))[i] if "SOURCE" in dins_data else "DINS"
+                new_entry = (coords, time_str, source, code)
+                
+                # 检查是否与已有条目重复
+                is_duplicate = False
+                for existing in added_entries:
+                    if should_deduplicate(existing, new_entry):
+                        is_duplicate = True
+                        print(f"[去重] {code} 被 {existing[3]} 覆盖")
+                        break
+                
+                if not is_duplicate:
+                    dataDict["CODE"].append(code)
+                    dataDict["COORDINATES"].append(coords)
+                    dataDict["TIME"].append(time_str)
+                    dataDict["PLATID"].append(dins_data["TRANSID"][i])
+                    dataDict["RAWMESSAGE"].append(dins_data["RAWMESSAGE"][i])
+                    dataDict["SOURCE"].append(source)
+                    added_entries.append(new_entry)
             print(f"爬取来源{source_num}: dinsQueryWeb, 获取 {len(dins_data['CODE'])} 条航警")
 
     if config.FETCH_FNS:
@@ -371,9 +557,10 @@ def fetch():
             fns_time = []
             fns_id = []
             fns_raw = []
+            fns_source = []
 
-            for code, coords_str, t, id, raw in zip(FNS_data['CODE'], FNS_data['COORDINATES'], FNS_data['TIME'],
-                                                    FNS_data['TRANSID'], FNS_data['RAWMESSAGE']):
+            for idx, (code, coords_str, t, id, raw) in enumerate(zip(FNS_data['CODE'], FNS_data['COORDINATES'], FNS_data['TIME'],
+                                                    FNS_data['TRANSID'], FNS_data['RAWMESSAGE'])):
                 pts = []
                 for part in coords_str.split('-'):
                     p = parse_point(part.strip())
@@ -418,14 +605,99 @@ def fetch():
                     fns_time.append(t)
                     fns_id.append(id)
                     fns_raw.append(raw)
+                    src = FNS_data.get("SOURCE", ["FNS_NOTAM"] * len(FNS_data["CODE"]))[idx] if "SOURCE" in FNS_data else "FNS_NOTAM"
+                    fns_source.append(src)
 
             if fns_code:
-                dataDict["CODE"].extend(fns_code)
-                dataDict["COORDINATES"].extend(fns_coord)
-                dataDict["TIME"].extend(fns_time)
-                dataDict["PLATID"].extend(fns_id)
-                dataDict["RAWMESSAGE"].extend(fns_raw)
+                for i, code in enumerate(fns_code):
+                    coords = fns_coord[i]
+                    time_str = fns_time[i]
+                    source = fns_source[i]
+                    new_entry = (coords, time_str, source, code)
+                    
+                    # 检查是否与已有条目重复
+                    is_duplicate = False
+                    for existing in added_entries:
+                        if should_deduplicate(existing, new_entry):
+                            is_duplicate = True
+                            print(f"[去重] {code} 被 {existing[3]} 覆盖")
+                            break
+                    
+                    if not is_duplicate:
+                        dataDict["CODE"].append(code)
+                        dataDict["COORDINATES"].append(coords)
+                        dataDict["TIME"].append(time_str)
+                        dataDict["PLATID"].append(fns_id[i])
+                        dataDict["RAWMESSAGE"].append(fns_raw[i])
+                        dataDict["SOURCE"].append(source)
+                        added_entries.append(new_entry)
             print(f"爬取来源{source_num}: FNS_NOTAM_SEARCH, 获取 {len(fns_code)} 条航警")
+
+    # 中国海事局海警
+    if config.FETCH_MSA:
+        try:
+            msa_data = MSA_NAV_SEARCH()
+            if msa_data.get("CODE"):
+                source_num += 1
+                for i, code in enumerate(msa_data["CODE"]):
+                    coords = msa_data["COORDINATES"][i]
+                    time_str = msa_data["TIME"][i]
+                    source = msa_data.get("SOURCE", ["MSA_NAV"] * len(msa_data["CODE"]))[i] if "SOURCE" in msa_data else "MSA_NAV"
+                    new_entry = (coords, time_str, source, code)
+                    
+                    # 检查是否与已有条目重复
+                    is_duplicate = False
+                    for existing in added_entries:
+                        if should_deduplicate(existing, new_entry):
+                            is_duplicate = True
+                            print(f"[去重] {code} 被 {existing[3]} 覆盖")
+                            break
+                    
+                    if not is_duplicate:
+                        dataDict["CODE"].append(code)
+                        dataDict["COORDINATES"].append(coords)
+                        dataDict["TIME"].append(time_str)
+                        dataDict["PLATID"].append(msa_data["TRANSID"][i])
+                        dataDict["RAWMESSAGE"].append(msa_data["RAWMESSAGE"][i])
+                        dataDict["SOURCE"].append(source)
+                        added_entries.append(new_entry)
+                print(f"爬取来源{source_num}: MSA_NAV_SEARCH, 获取 {len(msa_data['CODE'])} 条海警")
+        except Exception as e:
+            print(f"[错误] MSA海警爬取失败: {e}")
+            traceback.print_exc()
+
+    # U.S. Maritime Administration海警
+    if config.FETCH_MSI:
+        try:
+            msi_data = MSI_NAV_SEARCH()
+            if msi_data.get("CODE"):
+                source_num += 1
+                for i, code in enumerate(msi_data["CODE"]):
+                    coords = msi_data["COORDINATES"][i]
+                    time_str = msi_data["TIME"][i]
+                    source = msi_data.get("SOURCE", ["MSI_NAV"] * len(msi_data["CODE"]))[i] if "SOURCE" in msi_data else "MSI_NAV"
+                    new_entry = (coords, time_str, source, code)
+                    
+                    # 检查是否与已有条目重复
+                    is_duplicate = False
+                    for existing in added_entries:
+                        if should_deduplicate(existing, new_entry):
+                            is_duplicate = True
+                            print(f"[去重] {code} 被 {existing[3]} 覆盖")
+                            break
+                    
+                    if not is_duplicate:
+                        dataDict["CODE"].append(code)
+                        dataDict["COORDINATES"].append(coords)
+                        dataDict["TIME"].append(time_str)
+                        dataDict["PLATID"].append(msi_data["TRANSID"][i])
+                        dataDict["RAWMESSAGE"].append(msi_data["RAWMESSAGE"][i])
+                        dataDict["SOURCE"].append(source)
+                        added_entries.append(new_entry)
+                print(f"爬取来源{source_num}: MSI_NAV_SEARCH, 获取 {len(msi_data['CODE'])} 条海警")
+        except Exception as e:
+            print(f"[错误] MSI海警爬取失败: {e}")
+            traceback.print_exc()
 
     dataDict["NUM"] = len(dataDict["CODE"])
     dataDict["CLASSIFY"] = classify_data(dataDict)

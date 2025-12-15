@@ -285,6 +285,7 @@ def FNS_NOTAM_ARCHIVE_SEARCH(icao, date, mode=0):
             "TIME": data_array_unique[:, 2].tolist() if len(data_array_unique) > 0 else [],
             "TRANSID": data_array_unique[:, 3].tolist() if len(data_array_unique) > 0 else [],
             "RAWMESSAGE": data_array_unique[:, 4].tolist() if len(data_array_unique) > 0 else [],
+            "SOURCE": ["FNS_NOTAM"] * len(data_array_unique) if len(data_array_unique) > 0 else [],
         }
     else:
         result = {
@@ -293,6 +294,7 @@ def FNS_NOTAM_ARCHIVE_SEARCH(icao, date, mode=0):
             "TIME": [],
             "TRANSID": [],
             "RAWMESSAGE": [],
+            "SOURCE": [],
         }
     print(f"[进度] 解析完成，共获取 {len(result['CODE'])} 条有效航警")
     print(f"[进度] ========== 检索完成 ==========\n")

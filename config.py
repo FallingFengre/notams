@@ -1,11 +1,20 @@
 import configparser
 import os
 
-# 是否使用 dins/fns 数据源
+# 是否使用 dins/fns/msa/msi 数据源
 FETCH_DINS = False
 FETCH_FNS = True
+FETCH_MSA = True  # 中国海事局
+FETCH_MSI = False  # U.S. Maritime Administration
+
 # 本地航警数据过期时间，单位秒
 FETCH_EXPIRE_TIME = 600
+MSI_FETCH_EXPIRE_TIME = 600
+# MSI爬取配置
+# navArea: 4=NAVAREA IV, 12=NAVAREA VII, A=HYDROLANT, P=HYDROPAC, C=HYDROARC
+MSI_NAV_AREAS = ['4', '12', 'A', 'P', 'C']
+# dncRegion: 201-229 对应 DNC01-DNC29
+MSI_DNC_REGIONS = []
 
 EXCLUDE_RECTS = [
     # {'lat_min': 39.303183, 'lat_max': 40.856476, 'lon_min': 101.300003, 'lon_max': 105.242712},
@@ -14,6 +23,7 @@ EXCLUDE_RECTS = [
     {'lat_min': 40.12, 'lat_max': 42.09, 'lon_min': 89.95, 'lon_max': 96.50},
     {'lat_min': 41.81, 'lat_max': 54.43, 'lon_min': 111.16, 'lon_max': 134.76},
     {'lat_min': 39.84, 'lat_max': 40.04, 'lon_min': 119.48, 'lon_max': 119.79},
+    {'lat_min': 41.33, 'lat_max': 45.44, 'lon_min': 107.65, 'lon_max': 113.50}
 ]
 
 ICAO_CODES_DEFAULT = " ".join([
