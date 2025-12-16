@@ -208,3 +208,7 @@ __marimo__/
 .idea
 .idea
 .vscode
+
+# data file
+notam_results.json
+msi_result.json
