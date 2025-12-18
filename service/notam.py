@@ -36,23 +36,45 @@ regex_area_coords_2 = re.compile(rf"^([NS])([\d.]+)(?:{p_sep})([WE])([\d.]+)$")
 regex_lat = re.compile(r"^(\d\d)\s?(\d\d)?\s?(\d+(?:\.\d+)?)?$")
 regex_lon = re.compile(r"^(\d{3})\s?(\d\d)?\s?(\d+(?:\.\d+)?)?$")
 
+# types
+Point = Tuple[float, float]  # (lon, lat) 经纬度
+Area = List[Point]  # 多边形区域顶点列表
 
-# 判断地球上两个多边形区域是否重叠
-def poly_overlap(poly_a: List[Tuple[float, float]], poly_b: List[Tuple[float, float]]) -> bool:
+
+# 判断地球上两个区域是否有交集 (重叠、相交、边角接)
+def is_area_overlap(area_a: Area, area_b: Area) -> bool:
+    """
+    测试数据
+    重叠项: 1-2,1-4,2-3,2-4,3-4,3-5,10-11,12-13
+    边界相接项: 7-8, 8-9, 6-11
+    1: 010803N1001451E-003845S1020633E-023404S1023605E-031624S1013260E-041907S0993845E-015214S0983844E-001310N0972258E-010313N0994346E-010803N1001451E
+    2: 042212N0983622E-022937N1003956E-002737S0992446E-005327N0972130E-033347N0971604E-042212N0983622E
+    3: 043336N0990116E-013631N1013315E-004925N0975107E-035345N0960552E-043336N0990116E
+    4: 052423N0974524E-022937N1003956E-002737S0992446E-005327N0972130E-033135N0962056E-052423N0974524E
+    5: 054645N0941023E-055030N0961839E-052825N0973540E-034601N0961740E-045028N0941058E-054645N0941023E
+    6: 094909N0822708E-084126N0851626E-071501N0845829E-082048N0820440E-094909N0822708E
+    7: 105726N0771933E-105446N0772957E-104614N0773644E-105443N0771832E-105726N0771933E
+    8: 105847N0771518E-105726N0771933E-105443N0771832E-105708N0771322E-105847N0771518E
+    9: 110541N0771515E-110212N0771915E-105219N0770747E-105708N0770522E-110541N0771515E
+    10: 113500N0813000E-120500N0820000E-105000N0825500E-102000N0822500E-113500N0813000E
+    11: 113960N0814960E-120960N0822500E-110000N0832500E-090712N0841200E-093138N0831055E-103500N0824500E-113960N0814960E
+    12: 212023S1652060E-212901S1653454E-213805S1652758E-213126S1651222E-212023S1652060E
+    13: 212023S1652060E-213548S1654512E-214319S1654020E-213126S1651222E-212023S1652060E
+    """
     # 闭合
-    if poly_a[0] != poly_a[-1]:
-        poly_a.append(poly_a[0])
-    if poly_b[0] != poly_b[-1]:
-        poly_b.append(poly_b[0])
-    if not poly_a or not poly_b or len(set(poly_a)) < 3 or len(set(poly_b)) < 3:
+    if area_a[0] != area_a[-1]:
+        area_a.append(area_a[0])
+    if area_b[0] != area_b[-1]:
+        area_b.append(area_b[0])
+    if not area_a or not area_b or len(set(area_a)) < 3 or len(set(area_b)) < 3:
         return False  # 无效多边形
 
     # 将经度标准化到 [-180, 180)
     def norm_lon(lon: float) -> float:
         return (lon + 180) % 360 - 180
 
-    norm_a = [(norm_lon(lon), lat) for lon, lat in poly_a]
-    norm_b = [(norm_lon(lon), lat) for lon, lat in poly_b]
+    norm_a = [(norm_lon(lon), lat) for lon, lat in area_a]
+    norm_b = [(norm_lon(lon), lat) for lon, lat in area_b]
 
     try:
         base_a = Polygon(norm_a)
@@ -70,8 +92,17 @@ def poly_overlap(poly_a: List[Tuple[float, float]], poly_b: List[Tuple[float, fl
     return base_b.intersects(alter_a_1) or base_b.intersects(alter_a_2)
 
 
+# 判断 area 与指定区域列表是否有交集
+def is_area_legal(area: Area, banned_areas: List[Area]) -> bool:
+    for banned in banned_areas:
+        if is_area_overlap(area, banned):
+            return False
+    return True
+
+
 # 坐标转换, (lon, lat) 转 DMS[NS]DMS[WE], 毫秒精度丢失
-def coord_to_str(lon: float, lat: float) -> str:
+def point_to_str(point: Point) -> str:
+    lon, lat = point
     lon_d = int(abs(lon))
     lon_m = int((abs(lon) - lon_d) * 60)
     lon_s = round((abs(lon) - lon_d - lon_m / 60) * 3600)
@@ -86,7 +117,7 @@ def coord_to_str(lon: float, lat: float) -> str:
 # 坐标转换, DMS 转 (lon, lat), 若不合法则返回 (math.nan, math.nan)
 # 支持原始精度: DMS, DM, D, DMS.m
 # 支持两种顺序: DMS[NS]DMS[WE], [NS]DMS[WE]DMS
-def str_to_coord(coord: str) -> Tuple[float, float]:
+def str_to_point(coord: str) -> Point:
     coord = re.sub(r"\s", "", coord)
     match_1 = regex_area_coords_1.match(coord)
     match_2 = regex_area_coords_2.match(coord)
@@ -166,7 +197,7 @@ class NotamParser:
         self.lower_limit_meter: int | float | None = None
         self.upper_limit_meter: int | float | None = None
         # 点的坐标或区域的近似中心. 格式 (lon, lat)
-        self.center_coord: Tuple[float, float] | None = None
+        self.center_coord: Point | None = None
         # 半径, 单位海里
         self.radius: int | None = None
 
@@ -194,9 +225,9 @@ class NotamParser:
         # 正文中包含的坐标数量
         self.coord_count: int = 0
         # 正文中分析出的坐标分组, 每个 area 都是坐标列表, 至少包含 1 个坐标 (lon, lat), 包含闭合或非闭合情况
-        self.areas: List[List[Tuple[float, float]]] = []
+        self.areas: List[Area] = []
         # 有面积的合法 area 列表, 已修复自交等问题
-        self.sized_areas: List[List[Tuple[float, float]]] = []
+        self.sized_areas: List[Area] = []
 
     def parse(self):
         try:
@@ -290,9 +321,9 @@ class NotamParser:
         self.code = match.group(2) if match.group(2) else None
         self.code_subject = self.code[1:3] if self.code else None
         self.code_status = self.code[3:5] if self.code else None
-        self.traffic = [i for i in list(match.group(3)) if i.strip()]
-        self.purpose = [i for i in list(match.group(4)) if i.strip()]
-        self.scope = [i for i in list(match.group(5)) if i.strip()]
+        self.traffic = [i for i in match.group(3) if i.strip()]
+        self.purpose = [i for i in match.group(4) if i.strip()]
+        self.scope = [i for i in match.group(5) if i.strip()]
         self.lower_limit = int(match.group(6))
         self.upper_limit = int(match.group(7))
         self.lower_limit_meter = math.floor(self.lower_limit * 0.3048) * 100
@@ -370,7 +401,12 @@ class NotamParser:
         参考 MH/T 4031-2011
         参考 International NOTAM (Q) Codes
         """
-        if self.is_useless_notam or self.code_subject is None or self.code_status is None:
+        if (
+            self.is_useless_notam
+            or self.code_subject is None
+            or self.code_status is None
+            or self.item_e is None
+        ):
             return
         if self.code_status == "AM":
             return
@@ -385,10 +421,22 @@ class NotamParser:
         if re.match(r"^W[^MRS]", self.code_subject):
             return
         words = [
-            r"MIL", r"MOA", r"FORCES", r"DEFENCE", r"AIR FORCE", r"NAVAL", r"FRNG",
-            "COMBAT", r"BALLOONS?", r"ADS\-B", r"RADAR", r"VOLCANO", r"FIREWORK", r"MISSILES?"
+            r"MIL",
+            r"MOA",
+            r"FORCES",
+            r"DEFENCE",
+            r"AIR FORCE",
+            r"NAVAL",
+            r"FRNG",
+            r"COMBAT",
+            r"BALLOONS?",
+            r"ADS\-B",
+            r"RADAR",
+            r"VOLCANO",
+            r"FIREWORK",
+            r"MISSILES?",
         ]
-        if re.search(rf"\b(?:{"|".join(words)})\b", self.item_e):
+        if re.search(rf"\b(?:{'|'.join(words)})\b", self.item_e):
             return
         # check if contains a coordinate
         if not regex_single_coord.search(self.item_e):
@@ -411,7 +459,7 @@ class NotamParser:
         """
 
         # 极角排序, 对 is_valid=False 的 area 尝试修复自交问题, 可能造成形状影响
-        def reorder_points(area: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        def reorder_points(area: Area) -> Area:
             points = list(set(area))
             cx = sum(p[0] for p in points) / len(points)
             cy = sum(p[1] for p in points) / len(points)
@@ -424,14 +472,14 @@ class NotamParser:
                 ans.append(ans[0])
             return ans
 
-        if self.coord_count < 2:
+        if self.coord_count < 2 or not self.item_e:
             return
         for match in regex_area.finditer(self.item_e):
             area_str = match.group(0)
             coords = []
             for coord_match in regex_single_coord.finditer(area_str):
                 coord_str = coord_match.group(0).replace("\n", "")
-                lon, lat = str_to_coord(coord_str)
+                lon, lat = str_to_point(coord_str)
                 if not math.isnan(lon) and not math.isnan(lat):
                     coords.append((lon, lat))
             # 简单坐标组
@@ -488,11 +536,13 @@ def test_parse_notam(raw: str):
         print(f"起止时间: {notam.start_time} ~ {notam.end_time}")  # UTC 时间
         print(f"时间计划: {notam.schedule}")  # UTC 时间
         print(f"高度范围: {notam.lower_limit_meter} ~ {notam.upper_limit_meter} 米")
-        print("航警区域 (lon,lat) 格式:")
-        for area in notam.sized_areas:
+
+        legal_areas = [area for area in notam.sized_areas if is_area_legal(area, [])]
+        print("航警区域 (lon, lat) 格式:")
+        for area in legal_areas:
             print(area)
         print("航警区域 DMS 格式:")
-        for area in notam.sized_areas:
-            print("-".join([coord_to_str(lon, lat) for lon, lat in area]))
+        for area in legal_areas:
+            print("-".join([point_to_str(p) for p in area]))
 
 # test_parse_notam(raw)
