@@ -230,43 +230,34 @@ class NotamParser:
         self.sized_areas: List[Area] = []
 
     def parse(self):
-        try:
-            if not self._is_icao_format():
-                raise Exception("not ICAO format")
-            steps = [
-                # pre process
-                (self._cleanup, "cleanup failed"),
-                (self._split, "split failed"),
-                # parse
-                (self._parse_header, "parse header failed"),
-                (self._parse_item_q, "parse item Q failed"),
-                (self._parse_item_a, "parse item A failed"),
-                (self._parse_item_b_and_c, "parse item B/C failed"),
-                (self._parse_item_d, "parse item D failed"),
-                (self._parse_item_e, "parse item E failed"),
-                (self._parse_item_f_and_g, "parse item F/G failed"),
-                # post process
-                (self._check_useless, "check useless failed"),
-                (self._check_aerospace, "check aerospace failed"),
-                (self._count_coords, "count coords failed"),
-                (self._match_areas, "match areas failed"),
-            ]
-            for func, msg in steps:
-                try:
-                    func()
-                except Exception as e:
-                    raise Exception(msg) from e
-        except Exception as e:
-            print(f"Failed parsing NOTAM: {self.raw.replace("\n", " ")[:50]}... Error: {e}")
-            pass
+        if raw.strip().startswith("!"):
+            print(f"Error: NOTAM is not ICAO format. NOTAM: {self.raw.replace("\n", " ")[:50]}...")
+            return
 
-    def _is_icao_format(self) -> bool:
-        """
-        检测是否为 ICAO 格式 NOTAM
-        """
-        if self.raw.strip().startswith("!"):
-            return False
-        return True
+        steps = [
+            # pre process
+            (self._cleanup, "cleanup failed"),
+            (self._split, "split failed"),
+            # parse
+            (self._parse_header, "parse header failed"),
+            (self._parse_item_q, "parse item Q failed"),
+            (self._parse_item_a, "parse item A failed"),
+            (self._parse_item_b_and_c, "parse item B/C failed"),
+            (self._parse_item_d, "parse item D failed"),
+            (self._parse_item_e, "parse item E failed"),
+            (self._parse_item_f_and_g, "parse item F/G failed"),
+            # post process
+            (self._check_useless, "check useless failed"),
+            (self._check_aerospace, "check aerospace failed"),
+            (self._count_coords, "count coords failed"),
+            (self._match_areas, "match areas failed"),
+        ]
+        for func, msg in steps:
+            try:
+                func()
+            except Exception as e:
+                print(f"Error: {msg}, NOTAM: {self.raw.replace("\n", " ")[:50]}...")
+                print(e)
 
     def _cleanup(self):
         """
