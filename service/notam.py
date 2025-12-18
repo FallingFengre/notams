@@ -233,28 +233,29 @@ class NotamParser:
         try:
             if not self._is_icao_format():
                 raise Exception("not ICAO format")
-            try:
-                self._cleanup()
-                self._split()
-            except Exception as e:
-                raise Exception("cleanup or split failed") from e
-            try:
-                self._parse_header()
-                self._parse_item_q()
-                self._parse_item_a()
-                self._parse_item_b_and_c()
-                self._parse_item_d()
-                self._parse_item_e()
-                self._parse_item_f_and_g()
-            except Exception as e:
-                raise Exception("parse items failed") from e
-            try:
-                self._check_useless()
-                self._check_aerospace()
-                self._count_coords()
-                self._match_areas()
-            except Exception as e:
-                raise Exception("post-process failed") from e
+            steps = [
+                # pre process
+                (self._cleanup, "cleanup failed"),
+                (self._split, "split failed"),
+                # parse
+                (self._parse_header, "parse header failed"),
+                (self._parse_item_q, "parse item Q failed"),
+                (self._parse_item_a, "parse item A failed"),
+                (self._parse_item_b_and_c, "parse item B/C failed"),
+                (self._parse_item_d, "parse item D failed"),
+                (self._parse_item_e, "parse item E failed"),
+                (self._parse_item_f_and_g, "parse item F/G failed"),
+                # post process
+                (self._check_useless, "check useless failed"),
+                (self._check_aerospace, "check aerospace failed"),
+                (self._count_coords, "count coords failed"),
+                (self._match_areas, "match areas failed"),
+            ]
+            for func, msg in steps:
+                try:
+                    func()
+                except Exception as e:
+                    raise Exception(msg) from e
         except Exception as e:
             print(f"Failed parsing NOTAM: {self.raw.replace("\n", " ")[:50]}... Error: {e}")
             pass
@@ -402,10 +403,10 @@ class NotamParser:
         参考 International NOTAM (Q) Codes
         """
         if (
-            self.is_useless_notam
-            or self.code_subject is None
-            or self.code_status is None
-            or self.item_e is None
+                self.is_useless_notam
+                or self.code_subject is None
+                or self.code_status is None
+                or self.item_e is None
         ):
             return
         if self.code_status == "AM":
@@ -538,6 +539,7 @@ def test_parse_notam(raw: str):
         print(f"高度范围: {notam.lower_limit_meter} ~ {notam.upper_limit_meter} 米")
 
         legal_areas = [area for area in notam.sized_areas if is_area_legal(area, [])]
+
         print("航警区域 (lon, lat) 格式:")
         for area in legal_areas:
             print(area)
