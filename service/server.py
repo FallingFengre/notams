@@ -1,15 +1,9 @@
-import base64
 import logging
 import os
 import re
 import sys
 import traceback
 from datetime import datetime
-from io import BytesIO
-from tkinter import filedialog
-
-import win32clipboard
-from PIL import Image
 from flask import Flask, jsonify, render_template, send_from_directory
 from flask import request
 
@@ -703,67 +697,9 @@ def fetch():
     dataDict["CLASSIFY"] = classify_data(dataDict)
     dataDict["ALTITUDE"] = extract_altitude(dataDict["RAWMESSAGE"])
     print(dataDict)
-    print(f"使用时请不要关闭控制台，在浏览器中访问 http://{config.WEBVIEW_HOST}:{config.WEBVIEW_PORT} 以开始使用")
+    display_host = config.HOST if config.HOST not in ('0.0.0.0', '::') else '127.0.0.1'
+    print(f"使用时请不要关闭控制台，在浏览器中访问 http://{display_host}:{config.PORT} 以开始使用")
     return jsonify(dataDict)
-
-
-@app.route('/save_image', methods=['POST'])
-def save_image():
-    try:
-        data = request.get_json()
-        default_name = data.get('default_name', 'notam_export.png')
-        data_url = data.get('data_url')
-
-        if not data_url:
-            return jsonify({"error": "缺少 data_url 参数"}), 400
-
-        print("正在保存导出的图片...")
-
-        # 从 data URL 提取 base64 数据
-        header, encoded = data_url.split(",", 1)
-        data = base64.b64decode(encoded)
-
-        # 弹出“另存为”对话框（在 webview/GUI 环境中正常工作）
-        file_path = filedialog.asksaveasfilename(
-            title="保存导出的图片",
-            initialfile=default_name,
-            defaultextension=f".{default_name.split('.')[-1]}",
-            filetypes=[
-                ("PNG 图片", "*.png"),
-                ("JPEG 图片", "*.jpg;*.jpeg"),
-                ("所有文件", "*.*")
-            ]
-        )
-        if file_path:
-            with open(file_path, 'wb') as f:
-                f.write(data)
-            try:
-
-                # 从字节数据创建图片对象
-                img = Image.open(BytesIO(data))
-
-                # 转换为BMP格式用于剪贴板
-                output = BytesIO()
-                img.convert('RGB').save(output, 'BMP')
-                bmp_data = output.getvalue()[14:]  # 去掉BMP文件头
-
-                # 复制到剪贴板
-                win32clipboard.OpenClipboard()
-                win32clipboard.EmptyClipboard()
-                win32clipboard.SetClipboardData(win32clipboard.CF_DIB, bmp_data)
-                win32clipboard.CloseClipboard()
-
-                print("图片已复制到剪贴板")
-            except Exception as e:
-                print(f"复制到剪贴板失败: {e}")
-            return jsonify({"success": True, "filePath": os.path.abspath(file_path)})
-
-        else:
-            return jsonify({"success": False, "message": "用户取消保存"})
-    except Exception as e:
-        print(f"保存图片错误: {e}")
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
 
 
 def start_flask():

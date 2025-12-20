@@ -230,8 +230,9 @@ class NotamParser:
         self.sized_areas: List[Area] = []
 
     def parse(self):
-        if raw.strip().startswith("!"):
-            print(f"Error: NOTAM is not ICAO format. NOTAM: {self.raw.replace("\n", " ")[:50]}...")
+        if self.raw.strip().startswith("!"):
+            preview = self.raw.replace('\n', ' ').replace('\r', ' ')
+            print(f"Error: NOTAM is not ICAO format. NOTAM: {preview[:50]}...")
             return
 
         steps = [
@@ -256,7 +257,8 @@ class NotamParser:
             try:
                 func()
             except Exception as e:
-                print(f"Error: {msg}, NOTAM: {self.raw.replace("\n", " ")[:50]}...")
+                preview = self.raw.replace('\n', ' ').replace('\r', ' ')
+                print(f"Error: {msg}, NOTAM: {preview[:50]}...")
                 print(e)
 
     def _cleanup(self):

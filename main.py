@@ -4,8 +4,6 @@ import threading
 import time
 import webbrowser
 
-import webview
-
 import config
 from service.server import start_flask
 
@@ -31,39 +29,28 @@ if __name__ == '__main__':
     flask_thread.start()
 
     HOST, PORT = config.HOST, config.PORT
-    WEBVIEW_HOST, WEBVIEW_PORT = config.WEBVIEW_HOST, config.WEBVIEW_PORT
+    display_host = HOST
+    if HOST in ('0.0.0.0', '::'):
+        display_host = '127.0.0.1'
+    base_url = f"http://{display_host}:{PORT}"
 
     print("正在启动服务器...")
     if wait_for_server(HOST, PORT):
-        print(f"服务器已就绪，启动窗口...")
+        print(f"服务器已就绪，在浏览器中打开 {base_url} ...")
     else:
-        print("服务器启动超时，仍然尝试打开窗口...")
+        print("服务器启动超时，仍然尝试打开网页...")
         time.sleep(0.5)
 
-    if config.BROWSER_MODE:
-        try:
-            webbrowser.open(f"http://{WEBVIEW_HOST}:{WEBVIEW_PORT}")
-            print(
-                f"使用时请不要关闭控制台，在浏览器中访问 http://{WEBVIEW_HOST}:{WEBVIEW_PORT} 以开始使用")
-            print("按 Ctrl-C 可退出程序")
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("收到中断信号，程序退出")
-        finally:
-            sys.exit(0)
-    else:
-        try:
-            window = webview.create_window(
-                'NOTAM落区绘制工具',
-                f"http://{WEBVIEW_HOST}:{WEBVIEW_PORT}/placeholder",
-                width=1400,
-                height=900,
-                min_size=(800, 600)
-            )
-            webview.start()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            print("窗口已关闭，程序退出")
-            sys.exit(0)
+    try:
+        opened = webbrowser.open(base_url)
+        if not opened:
+            print(f"无法自动打开浏览器，请手动访问 {base_url}")
+        else:
+            print(f"已自动在浏览器中打开 {base_url}")
+        print("按 Ctrl-C 可退出程序")
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("收到中断信号，程序退出")
+    finally:
+        sys.exit(0)

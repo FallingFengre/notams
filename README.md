@@ -15,10 +15,11 @@
 - &ensp;&ensp;&ensp;&ensp;该工具通过爬取NOTAM查询网站，分析并获取与发射相关的航警，将NOTAM内容解析并调用Leafletjs api并加载高德地图瓦片源将其绘制在地图上，以便更直观方便的进行查询。 <br>
 
 **三、工具使用方法与功能介绍**<br>
-- &ensp;&ensp;&ensp;&ensp;解压完成后，运行目录中的notamChecker.exe  <br>
-- &ensp;&ensp;&ensp;&ensp;如果是未打包的项目文件，请先运行`pip3 install -r requirements.txt`安装依赖库，然后直接运行`python3 main.py`即可  <br>
-- &ensp;&ensp;&ensp;&ensp;之后会直接弹出工具页面，你也可以直接在浏览器访问 http://127.0.0.1:5000 来实用工具工具（ip和端口可以在_internal/config.ini里进行配置）。  <br>
+- &ensp;&ensp;&ensp;&ensp;安装依赖：`pip3 install -r requirements.txt`（建议使用虚拟环境，macOS/Windows/Linux 通用）  <br>
+- &ensp;&ensp;&ensp;&ensp;启动服务：`python3 main.py`，程序会尝试自动打开默认浏览器；若未成功可手动访问 http://127.0.0.1:5000  <br>
+- &ensp;&ensp;&ensp;&ensp;配置说明：可在项目根目录的`config.ini`中修改`[SERVER]`段的`host`与`port`  <br>
 - &ensp;&ensp;&ensp;&ensp;地图上已将我国现有的四个发射场与一个航天港（酒泉、西昌、太原、文昌、海阳）标出，进入工具页面后会自动抓取一次航警信息，并在界面上将未来一段时间的发射落区绘制出来。左上角的区域可以自行选定这些航警的颜色，下方的“移除自动绘制落区”按钮则可以删除这些自动绘制的落区。点击右侧的“自动获取落区列表”按钮后会展开一个展示所有自动获取的落区的列表，点击相应航警会将地图视角跳转至该航警处。展开“手动输入航警”栏可以自行输入并绘制航警。高德地图也有卫星地图瓦片源，因此该工具也可以选择在卫星地图图层下使用。
+- &ensp;&ensp;&ensp;&ensp;导出与剪贴板：导出图片会直接下载到本地，并尝试通过浏览器剪贴板 API 将图片复制到剪贴板；若浏览器未授予剪贴板权限或不支持写入图片，将仅完成下载（可从下载的图片手动复制）。  <br>
 
 **其它页面**
 

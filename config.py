@@ -43,11 +43,6 @@ def load_config():
         }
         config['SERVER'] = {
             'host': '127.0.0.1',
-            'port': '5000',
-            'browser_mode': 'false'
-        }
-        config['WEBVIEW'] = {
-            'host': '127.0.0.1',
             'port': '5000'
         }
         with open(config_file, 'w', encoding='utf-8') as f:
@@ -63,10 +58,3 @@ ICAO_CODES = config.get('ICAO', 'codes', fallback=ICAO_CODES_DEFAULT)
 # Flask 服务器绑定配置
 HOST = config.get('SERVER', 'host', fallback='127.0.0.1')
 PORT = config.getint('SERVER', 'port', fallback=5000)
-
-# 是否使用浏览器模式（默认webview模式）
-BROWSER_MODE = config.getboolean('SERVER', 'browser_mode', fallback=False)
-
-# pywebview 窗口连接配置（可以与服务器绑定地址不同）
-WEBVIEW_HOST = config.get('WEBVIEW', 'host', fallback=HOST)
-WEBVIEW_PORT = config.getint('WEBVIEW', 'port', fallback=PORT)

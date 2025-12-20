@@ -1,5 +1,17 @@
-// 检测是否在 PyWebView 环境中
-const isPyWebView = typeof window.pywebview !== 'undefined';
+async function writeBlobToClipboard(blob, mimeType) {
+  if (!navigator.clipboard || typeof window.ClipboardItem === 'undefined') {
+    return false;
+  }
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({ [mimeType]: blob })
+    ]);
+    return true;
+  } catch (error) {
+    console.warn('复制到剪贴板失败:', error);
+    return false;
+  }
+}
 
 // 主导出函数 (使用 leaflet-image)
 async function exportMapAsImage() {
@@ -94,41 +106,29 @@ async function exportMapAsImage() {
       const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '').substring(0, 6);
       const fileName = `NOTAM_落区_${dateStr}_${timeStr}.${format}`;
 
-      if (isPyWebView) {
-        try {
-          const dataURL = canvas.toDataURL(`image/${format}`, format === 'jpeg' ? 0.92 : 1.0);
-          const response = await fetch('/save_image', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ default_name: fileName, data_url: dataURL })
-          });
-          const result = await response.json();
+      const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+      const qualityValue = format === 'jpeg' ? 0.92 : 1.0;
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, mimeType, qualityValue));
 
-          if (result.success) {
-            showNotification(`已保存至：${result.filePath}\n图片已同时复制到剪贴板`, 'success');
-          } else if (result.message) {
-            showNotification(result.message, 'info');
-          } else {
-            throw new Error(result.error || '保存失败');
-          }
-        } catch (e) {
-          console.error('保存失败:', e);
-          const link = document.createElement('a');
-          link.download = fileName;
-          link.href = canvas.toDataURL(`image/${format}`, format === 'jpeg' ? 0.92 : 1.0);
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          showNotification('保存失败，已直接下载', 'warning');
-        }
+      if (!blob) {
+        alert('导出失败：浏览器不支持生成图片');
+        return;
+      }
+
+      const objectURL = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.download = fileName;
+      link.href = objectURL;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectURL);
+
+      const copied = await writeBlobToClipboard(blob, mimeType);
+      if (copied) {
+        showNotification('导出成功，图片已复制到剪贴板', 'success');
       } else {
-        const link = document.createElement('a');
-        link.download = fileName;
-        link.href = canvas.toDataURL(`image/${format}`, format === 'jpeg' ? 0.92 : 1.0);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        showNotification('导出成功！', 'success');
+        showNotification('导出成功，如需复制请在下载的图片上手动完成', 'success');
       }
     }, {
       scale: quality, // 使用用户选择的质量
