@@ -11,7 +11,7 @@ import requests
 
 ICAO_CODES = [
     "ZBPE", "ZGZU", "ZHWH", "ZJSA", "ZLHW", "ZPKM", "ZSHA", "ZWUQ", "ZYSH",
-    "VHHK", "FUCK", "双曲线你为什么要特立独行",
+    "VHHK", "FUCK", "双曲线你为什么要特立独行","FUCK2"
 ]
 
 
@@ -59,10 +59,18 @@ def fetch_one(icao):
         "freeFormText": "DNG ZONE",
         "notamsOnly": "false"
     }
+    payload3 = {
+        "searchType": "4",
+        "offset": "0",
+        "freeFormText": "ROCKET LAUNCH",
+        "notamsOnly": "false"
+    }
     if icao == "FUCK":
         payload = payload1
     if icao == "双曲线你为什么要特立独行":
         payload = payload2
+    if icao == "FUCK2":
+        payload = payload3
     session = requests.Session()
     session.headers.update(make_headers())
     num = 30
@@ -280,8 +288,9 @@ def FNS_NOTAM_SEARCH():
     for icao, notams in results.items():
         for notam in notams:
             message = notam.get('Message', '')
-            if ("A TEMPORARY" in message and "-" in message) or ("AEROSPACE" in message) or (
-                    "CHINA" in message and "DNG ZONE" in message and "AERIAL" in message):
+            if (("A TEMPORARY" in message and "-" in message) or ("AEROSPACE" in message) 
+                or ("CHINA" in message and "AERIAL" in message and "DNG ZONE" in message)
+                 or ("CHINA" in message and "ROCKET" in message and "LAUNCH" in message)):
                 raw_message = message
                 message = message.replace(" ", "")
                 message = message.replace("\n", "")
