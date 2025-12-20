@@ -208,4 +208,7 @@ __marimo__/
 .idea
 .idea
 .vscode
-fetch/__pycache__
+
+# data file
+notam_results.json
+msi_result.json

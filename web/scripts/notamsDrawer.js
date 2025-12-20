@@ -1,8 +1,32 @@
 let expanded = false;
 let warningCount = 0;
-let manualNotams = []; // 存储手动绘制的航警信息
+let manualNotams = []; // 存储手动绘制的航警信息（统一数据结构）
 let manualVisibleState = {}; // 存储每个手动航警的显示/隐藏状态
 let manualPolygons = []; // 存储手动绘制的多边形对象
+
+/**
+ * 创建统一的航警数据对象
+ * @param {Object} params - 航警参数
+ * @returns {Object} 标准化的航警对象
+ */
+function createNotamData(params) {
+    return {
+        id: params.id || '',                    // 唯一标识符
+        CODE: params.CODE || '',                // 航警编号
+        COORDINATES: params.COORDINATES || '',  // 坐标字符串
+        TIME: params.TIME || '',                // 时间窗口
+        PLATID: params.PLATID || '',            // 平台ID
+        SOURCE: params.SOURCE || 'MANUAL',      // 来源（MANUAL表示手动绘制）
+        RAWMESSAGE: params.RAWMESSAGE || '',    // 原始文本
+        ALTITUDE: params.ALTITUDE || '',        // 高度
+        ROCKET: params.ROCKET || '',            // 火箭型号
+        LAUNCH: params.LAUNCH || '',            // 发射场
+        // 前端显示相关
+        coords: params.coords || [],            // 解析后的坐标数组
+        color: params.color || '#0078ff',       // 显示颜色
+        polygon: params.polygon || null         // Leaflet多边形对象
+    };
+}
 
 // 切换到手动绘制页面
 function toggleManualDrawer() {
@@ -101,7 +125,7 @@ function drawWarning() {
     
     warningCount++;
     const num = warningCount;
-    const notamId = `航警-${num}`;
+    const notamId = `MANUAL-${num}`;
 
     // 解析坐标并绘制
     const parsedCoords = parseNotamCoordinates(text);
@@ -118,14 +142,24 @@ function drawWarning() {
         weight: 2
     }).addTo(map);
 
-    // 保存手动航警信息
-    manualNotams.push({
+    // 使用统一的数据结构保存手动航警信息
+    const notamData = createNotamData({
         id: notamId,
+        CODE: notamId,
+        COORDINATES: extractCoordinatesString(text),  // 提取坐标字符串
+        TIME: '',                     // 手动绘制暂不解析时间
+        PLATID: '',
+        SOURCE: 'MANUAL',
+        RAWMESSAGE: text,             // 保存原始输入文本
+        ALTITUDE: '',
+        ROCKET: '',
+        LAUNCH: '',
         coords: parsedCoords,
-        originalText: text,  // 保存原始输入文本
         color: color,
         polygon: polygon
     });
+    
+    manualNotams.push(notamData);
     
     manualVisibleState[notamId] = true;
     manualPolygons.push(polygon);
@@ -208,6 +242,33 @@ function parseNotamCoordinates(text) {
     }
     
     return latLngs;
+}
+
+// 从文本中提取坐标字符串用于存储
+function extractCoordinatesString(text) {
+    text = text.replace(/{[^}]+}/g, ''); 
+    text = text.replace(/%[^%]+%/g, ''); 
+    text = text.replace(/[\r\n]+/g, '');
+    text = text.replace(/\s+/g, '');
+    
+    const coorRegex = /[NS]\d{4,6}[WE]\d{5,7}(?:-[NS]\d{4,6}[WE]\d{5,7})*/g;
+    let coor = text.match(coorRegex);
+    
+    if(coor==null){
+        coor=processCoordinates(text);      
+    }
+    if(coor==null){
+        coor=processCoordinates2(text)
+    }
+    if(coor==null){
+        coor=processCoordinates3(text);
+    }
+    if(coor==null){
+        coor=processCoordinates4(text);
+    }
+    
+    if (!coor || coor.length === 0) return '';
+    return coor[0];
 }
 
 // 解析单个坐标字符串（如 N394838E1005637）
@@ -375,7 +436,7 @@ function selfDrawNot(text, color, num) {
     // const time = text.match(timeRegex);
     const code = text.match(codeRegex);
     // alert(coor[0]);
-    drawNot(coor[0], "null", code, null, num, color, 1);
+    drawNot(coor[0], "null", code, null, num, color, 1, "", "MANUAL");
 }
 
 function notRemove(num) {
@@ -521,7 +582,7 @@ function copyManualCoords(notamId) {
     const notam = manualNotams.find(n => n.id === notamId);
     if (notam) {
         // 使用原始输入文本（如果有），否则回退到格式化坐标
-        const coordsStr = notam.originalText || notam.coords.map(c => `${c[0]}, ${c[1]}`).join('\n');
+        const coordsStr = notam.RAWMESSAGE || notam.coords.map(c => `${c[0]}, ${c[1]}`).join('\n');
         
         if (typeof handleCopy === 'function') {
             handleCopy(coordsStr);

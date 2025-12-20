@@ -54,12 +54,13 @@ exportButton.addEventListener('click', () => {
 function openHelpArea() {
     isHelpExpanded = true;
     expandableArea.style.maxHeight = HELP_AREA_HEIGHT + 'px';
-    expandableArea.style.bottom = '10px';
+    const isMobile = window.innerWidth <= 768;
+    expandableArea.style.bottom = isMobile ? '60px' : '10px';
     // 等待 DOM 更新后获取实际高度
     setTimeout(() => {
-        helpButton.style.transform = `translateY(-${HELP_AREA_HEIGHT + 10}px)`;
-        exportButton.style.transform = `translateY(-${HELP_AREA_HEIGHT + 10}px)`;
-        if (customButton) customButton.style.transform = `translateY(-${HELP_AREA_HEIGHT + 10}px)`;
+        helpButton.style.transform = `translateY(-${HELP_AREA_HEIGHT }px)`;
+        exportButton.style.transform = `translateY(-${HELP_AREA_HEIGHT }px)`;
+        if (customButton) customButton.style.transform = `translateY(-${HELP_AREA_HEIGHT }px)`;
     }, 10);
     helpButton.textContent = '收起';
 }
@@ -67,7 +68,8 @@ function openHelpArea() {
 function closeHelpArea() {
     isHelpExpanded = false;
     expandableArea.style.maxHeight = '0';
-    expandableArea.style.bottom = '40px';
+    const isMobile = window.innerWidth <= 768;
+    expandableArea.style.bottom = isMobile ? '90px' : '40px';
     helpButton.style.transform = 'translateY(0)';
     exportButton.style.transform = 'translateY(0)';
     if (customButton) customButton.style.transform = 'translateY(0)';
@@ -77,12 +79,13 @@ function closeHelpArea() {
 function openExportArea() {
     isExportExpanded = true;
     exportArea.style.maxHeight = EXPORT_AREA_HEIGHT + 'px';
-    exportArea.style.bottom = '10px';
+    const isMobile = window.innerWidth <= 768;
+    exportArea.style.bottom = isMobile ? '60px' : '10px';
     // 等待 DOM 更新后获取实际高度
     setTimeout(() => {
-        helpButton.style.transform = `translateY(-${EXPORT_AREA_HEIGHT + 10}px)`;
-        exportButton.style.transform = `translateY(-${EXPORT_AREA_HEIGHT + 10}px)`;
-        if (customButton) customButton.style.transform = `translateY(-${EXPORT_AREA_HEIGHT + 10}px)`;
+        helpButton.style.transform = `translateY(-${EXPORT_AREA_HEIGHT }px)`;
+        exportButton.style.transform = `translateY(-${EXPORT_AREA_HEIGHT }px)`;
+        if (customButton) customButton.style.transform = `translateY(-${EXPORT_AREA_HEIGHT }px)`;
     }, 10);
     exportButton.textContent = '收起';
 }
@@ -90,7 +93,8 @@ function openExportArea() {
 function closeExportArea() {
     isExportExpanded = false;
     exportArea.style.maxHeight = '0';
-    exportArea.style.bottom = '40px';
+    const isMobile = window.innerWidth <= 768;
+    exportArea.style.bottom = isMobile ? '90px' : '40px';
     helpButton.style.transform = 'translateY(0)';
     exportButton.style.transform = 'translateY(0)';
     if (customButton) customButton.style.transform = 'translateY(0)';
@@ -257,4 +261,18 @@ function ansiToHtml(text) {
     return result;
 }
 
+// 动态调整展开区域的位置
+window.addEventListener('resize', () => {
+    const isMobile = window.innerWidth <= 768;
+    if (isHelpExpanded) {
+        expandableArea.style.bottom = isMobile ? '60px' : '10px';
+    } else {
+        expandableArea.style.bottom = isMobile ? '90px' : '40px';
+    }
+    if (isExportExpanded) {
+        exportArea.style.bottom = isMobile ? '60px' : '10px';
+    } else {
+        exportArea.style.bottom = isMobile ? '90px' : '40px';
+    }
+});
 

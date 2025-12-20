@@ -140,6 +140,78 @@ function toggleSidebar() {
 })();
 
 
+// 获取SOURCE来源显示信息
+function getSourceDisplay(source) {
+    if (!source) return '';
+    
+    const sourceMap = {
+        'FNS_NOTAM': {
+            name: 'FAA NOTAM',
+            url: 'https://notams.aim.faa.gov/notamSearch/'
+        },
+        'MSA_NAV': {
+            name: '中国海事局',
+            url: 'https://www.msa.gov.cn/page/channelArticles.do?channelids=9C219298-B27F-460E-995A-99401B3FF6AF'
+        },
+        'MSI_NAV': {
+            name: 'NGA MSI',
+            url: 'https://msi.nga.mil/'
+        },
+        'DINS': {
+            name: 'DINS',
+            url: '#'
+        }
+    };
+    
+    const info = sourceMap[source];
+    if (info) {
+        return `来源: <a href="${info.url}" target="_blank" style="color: #3498db; text-decoration: none;" onclick="event.stopPropagation();">${info.name}</a>`;
+    }
+    return `来源: ${source}`;
+}
+
+// 转换多段时间窗口（支持分号分隔的多段时间）
+function convertTimeMultiSegment(utcTimeStr) {
+    // 处理空值或无效值
+    if (!utcTimeStr || utcTimeStr === 'null' || utcTimeStr === 'undefined') {
+        return '时间未知';
+    }
+    
+    // 检查是否包含多段时间（分号分隔）
+    const segments = utcTimeStr.split(';');
+    
+    if (segments.length === 1) {
+        // 单段时间，使用原有逻辑
+        return convertTime(utcTimeStr);
+    }
+    
+    // 多段时间
+    const convertedSegments = [];
+    for (const segment of segments) {
+        const trimmed = segment.trim();
+        if (trimmed) {
+            const converted = convertTime(trimmed);
+            if (converted && converted !== '时间未知') {
+                convertedSegments.push(converted);
+            }
+        }
+    }
+    
+    if (convertedSegments.length === 0) {
+        return '时间未知';
+    }
+    
+    // 显示摘要：仅显示时间段数量和第一个及最后一个
+    if (convertedSegments.length > 3) {
+        return `共${convertedSegments.length}个时间窗口<br/>` +
+               `首: ${convertedSegments[0]}<br/>` +
+               `末: ${convertedSegments[convertedSegments.length - 1]}`;
+    }
+    
+    return convertedSegments.join('<br/>');
+}
+
+
 // 北京时间转换（放在这里或 scripts.js 均可）
 function convertTime(utcTimeStr) {
     // 处理空值或无效值
@@ -252,8 +324,10 @@ function updateSidebar() {
         for (let i = 0; i < dict.NUM; i++) {
             const code = dict.CODE[i];
             const rawTime = dict.TIME[i] || '';
-            const prettyTime = convertTime(rawTime);
+            const prettyTime = convertTimeMultiSegment(rawTime);
             const rawMessage = dict.RAWMESSAGE?.[i] || '';
+            const source = dict.SOURCE?.[i] || '';
+            const sourceDisplay = getSourceDisplay(source);
             const col = getColorForCode(code);
             const visible = visibleState[i] !== false;
             html += `
@@ -282,6 +356,7 @@ function updateSidebar() {
                     <div class="notam-time">
                         ${prettyTime}
                     </div>
+                    ${sourceDisplay ? `<div class="notam-source" style="font-size: 11px; color: #666; margin-top: 4px;">${sourceDisplay}</div>` : ''}
                 </div>
                 <div class="notam-actions">
                         <button class="icon-btn"

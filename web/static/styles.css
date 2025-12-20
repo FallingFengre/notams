@@ -25,6 +25,34 @@ body,html,#allmap {width: 100%;height: 100%;overflow: hidden;margin:0;font-famil
 .popup-value {font-size: 12px;color: #333;line-height: 1.4;}
 .notam-popup-buttons {display: flex;gap: 6px;margin-top: 8px;}
 .notam-popup-buttons .copy {flex: 1;padding: 6px 10px;font-size: 12px;font-weight: bold;}
+/* 多段时间窗口样式 */
+.main-time {margin-bottom: 4px;}
+.toggle-alternate-btn {
+    background: #6c757d;
+    color: white;
+    border: none;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+    margin-top: 4px;
+    transition: background 0.2s;
+}
+.toggle-alternate-btn:hover {background: #5a6268;}
+.alternate-times {
+    margin-top: 6px;
+    padding: 6px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
+}
+.alternate-time-item {
+    font-size: 11px;
+    color: #555;
+    padding: 3px 0;
+    border-bottom: 1px dashed #dee2e6;
+}
+.alternate-time-item:last-child {border-bottom: none;}
 .copy-coord {background: #007906 !important;}
 .copy-raw {background: #0056b3 !important;}
 .copy-coord:hover {background: #005a04 !important;}
@@ -68,7 +96,7 @@ body,html,#allmap {width: 100%;height: 100%;overflow: hidden;margin:0;font-famil
 #drawerFooter {text-align: center;padding: 10px;background: #f0f0f0;cursor: pointer;border-top: 1px solid #ccc;}
 #drawerFooter:hover {background: #e0e0e0;}
 textarea {resize: none; width: 100%;padding: 8px;border-radius: 5px;border: 1px solid #ccc;box-sizing: border-box; }
-.help-btn, .custom-btn, .export-btn {position: absolute;bottom: 40px;height: 42px;display: flex;justify-content: center;align-items: center;color: #333;font-size: 14px;font-weight: bold;cursor: pointer;transition: transform 0.3s ease, background-color 0.3s ease;z-index: 2;user-select: none;}
+.help-btn, .custom-btn, .export-btn {position: absolute;bottom: 40px;height: 42px;display: flex;justify-content: center;align-items: center;color: #333;font-size: 14px;font-weight: bold;cursor: pointer;transition: transform 0.3s ease, background-color 0.3s ease, bottom 0.3s ease;z-index: 2;user-select: none;}
 .help-btn {width: 42px; left: 20px; border-radius: 10px;box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);background-color: #e6e6e6; }
 .export-btn {width: 42px; left: 74px; border-radius: 10px;box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);background-color: #e6e6e6; }
 .custom-btn {left: 95px;border-radius: 10px;box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);background-color: #d6d6d6;padding: 0 20px;}
@@ -159,10 +187,12 @@ textarea {resize: none; width: 100%;padding: 8px;border-radius: 5px;border: 1px 
 .log-timestamp, .log-level, .log-message {user-select: text;-webkit-user-select: text;}
 /* ────────────────────── 响应式航警侧边栏 ────────────────────── */
 #sidebarToggle, #manualToggle {position: absolute;writing-mode: vertical-lr;text-orientation: upright;background: #f5f5f5;padding: 8px 12px;border-radius: 6px;cursor: pointer;z-index: 400;font-weight: bold;box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);top: 50%;letter-spacing: 10px;padding-top: 18px;user-select: none;transition: all 0.2s;color: #2c3e50;}
-#sidebarToggle {right: 10px;transform: translateY(calc(-50% - 70px));}
+/* #sidebarToggle {right: 10px;transform: translateY(calc(-50% - 70px));} */
+#sidebarToggle {right: 10px;transform: translateY(calc(-50%));}
 #manualToggle {right: 10px;transform: translateY(calc(-50% + 70px));}
 #sidebarToggle:hover, #manualToggle:hover {background: #e8e8e8;box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);}
-#sidebarToggle:active {transform: translateY(calc(-50% - 70px)) scale(0.95);}
+/* #sidebarToggle:active {transform: translateY(calc(-50% - 70px)) scale(0.95);} */
+#sidebarToggle:active {transform: translateY(calc(-50%)) scale(0.95);}
 #manualToggle:active {transform: translateY(calc(-50% + 70px)) scale(0.95);}
 
 /* 宽屏：右侧弹出 */
@@ -175,10 +205,14 @@ textarea {resize: none; width: 100%;padding: 8px;border-radius: 5px;border: 1px 
 .archive-sidebar .sidebar-content {overflow: visible !important;}
 
 /* 窄屏（<768px）：底部弹出 */
-@media (max-width: 768px) {#sidebarToggle, #manualToggle {bottom: 20px;top: auto;writing-mode: horizontal-tb;text-align: center;padding: 10px 15px;border-radius: 10px;width: 110px;line-height: normal;letter-spacing: normal;font-size: 13px;}
-#sidebarToggle {left: 50%;transform: translateX(calc(-100% - 8px));}
+@media (max-width: 768px) {
+.help-btn, .export-btn {bottom: 80px;}
+.custom-btn {bottom: 80px;}
+.expandable-area, .export-area {bottom: 130px;}
+#sidebarToggle, #manualToggle {bottom: 20px;top: auto;writing-mode: horizontal-tb;text-align: center;padding: 10px 15px;border-radius: 10px;width: 130px;line-height: normal;letter-spacing: normal;font-size: 16px;font-weight: bold;box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);user-select: none;transition: all 0.2s;color: #2c3e50;}
+#sidebarToggle {left: 50%;transform: translateX(calc(-50%));}
 #manualToggle {left: 50%;transform: translateX(8px);}
-#sidebarToggle:active {transform: translateX(calc(-100% - 8px)) scale(0.95);}
+#sidebarToggle:active {transform: translateX(calc(-50%)) scale(0.95);}
 #manualToggle:active {transform: translateX(8px) scale(0.95);}
 .notam-sidebar {top: auto;width: 100%;height: 35vh;bottom: -100%;right: auto;left: 0;transition: bottom 0.35s ease;border-radius: 16px 16px 0 0;}
 .notam-sidebar.open {bottom: 0;}

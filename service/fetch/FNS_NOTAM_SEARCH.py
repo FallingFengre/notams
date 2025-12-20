@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import requests
 
+import config
+
 ICAO_CODES = [
     "ZBPE", "ZGZU", "ZHWH", "ZJSA", "ZLHW", "ZPKM", "ZSHA", "ZWUQ", "ZYSH",
     "VHHK", "FUCK", "双曲线你为什么要特立独行","FUCK2"
@@ -187,9 +189,9 @@ def FNS_NOTAM_SEARCH():
                 ts = data.get("timestamp", 0)
                 stats_obj = data.get('stats', {})  # 如果 'stats' 不存在，返回一个空字典 {}
                 failed_cnt = stats_obj.get('fail', 0)
-                if now - ts < 600 and "results" in data and failed_cnt == 0:
+                if now - ts < config.FETCH_EXPIRE_TIME and "results" in data and failed_cnt == 0:
                     results = data["results"]
-                    print("10分钟内爬取过航警，使用已有数据。")
+                    print(f"{config.FETCH_EXPIRE_TIME / 60} 分钟内爬取过航警，使用已有数据。")
                 else:
                     raise Exception("已有数据过期或格式不正确，尝试重新爬取航警。")
             except Exception as e:
@@ -327,6 +329,7 @@ def FNS_NOTAM_SEARCH():
             "TIME": data_array[:, 2].tolist() if len(data_array) > 0 else [],
             "TRANSID": data_array[:, 3].tolist() if len(data_array) > 0 else [],
             "RAWMESSAGE": data_array[:, 4].tolist() if len(data_array) > 0 else [],
+            "SOURCE": ["FNS_NOTAM"] * len(data_array) if len(data_array) > 0 else [],
         }
     else:
         result = {
@@ -335,6 +338,7 @@ def FNS_NOTAM_SEARCH():
             "TIME": [],
             "TRANSID": [],
             "RAWMESSAGE": [],
+            "SOURCE": [],
         }
     return result
 # print(FNS_NOTAM_SEARCH())

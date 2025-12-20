@@ -364,7 +364,7 @@ function redrawAllNotams() {
     
     for (var i = 0; i < dict.NUM; i++) {
         var color = getColorForCode(dict.CODE[i]);
-        drawNot(dict.COORDINATES[i], dict.TIME[i], dict.CODE[i], dict.ALTITUDE[i], i, color, 0, dict.RAWMESSAGE[i]);
+        drawNot(dict.COORDINATES[i], dict.TIME[i], dict.CODE[i], dict.ALTITUDE[i], i, color, 0, dict.RAWMESSAGE[i], dict.SOURCE?.[i] || 'DINS');
         
         if (currentVisibleState[i] === false && polygonAuto[i]) {
             map.removeLayer(polygonAuto[i]);
@@ -692,12 +692,87 @@ function sortPolygonPoints(latlngs) {
     return sortedPoints;
 }
 
+// 格式化弹窗中的多段时间显示（支持展开/收起）
+function formatPopupTimeDisplay(timee, numm) {
+    if (!timee || timee === 'null' || timee === 'undefined') {
+        return '时间未知';
+    }
+    
+    // 检查是否包含多段时间
+    const segments = timee.split(';');
+    
+    if (segments.length === 1) {
+        // 单段时间，直接转换显示
+        return convertTime(timee);
+    }
+    
+    // 多段时间：转换所有时间段
+    const convertedSegments = [];
+    for (const segment of segments) {
+        const trimmed = segment.trim();
+        if (trimmed) {
+            const converted = convertTime(trimmed);
+            if (converted && converted !== '时间未知') {
+                convertedSegments.push(converted);
+            }
+        }
+    }
+    
+    if (convertedSegments.length === 0) {
+        return '时间未知';
+    }
+    
+    // 主窗口（第一个）
+    const mainTime = convertedSegments[0];
+    
+    if (convertedSegments.length === 1) {
+        return mainTime;
+    }
+    
+    // 备用窗口（其余的）
+    const alternateCount = convertedSegments.length - 1;
+    const alternateHtml = convertedSegments.slice(1).map((t, i) => 
+        `<div class="alternate-time-item">备用${i + 1}: ${t}</div>`
+    ).join('');
+    
+    // 返回带展开/收起按钮的HTML
+    return `<div class="main-time">${mainTime}</div>` +
+           `<button class="toggle-alternate-btn" data-popup-index="${numm}" onclick="toggleAlternateTime(${numm}, event)">` +
+           `显示${alternateCount}个备用窗口</button>` +
+           `<div class="alternate-times" id="alternate-times-${numm}" style="display: none;">` +
+           alternateHtml +
+           `</div>`;
+}
+
+// 切换备用窗口显示
+function toggleAlternateTime(idx, event) {
+    event.stopPropagation();
+    const container = document.getElementById('alternate-times-' + idx);
+    const btn = event.target;
+    
+    if (!container) return;
+    
+    if (container.style.display === 'none') {
+        container.style.display = 'block';
+        // 更新按钮文字
+        const count = container.querySelectorAll('.alternate-time-item').length;
+        btn.textContent = '收起备用窗口';
+    } else {
+        container.style.display = 'none';
+        const count = container.querySelectorAll('.alternate-time-item').length;
+        btn.textContent = `显示${count}个备用窗口`;
+    }
+}
+
 // 绘制NOTAM多边形
-function drawNot(COORstrin, timee, codee, altitude, numm, col, is_self, rawmessage) {
+function drawNot(COORstrin, timee, codee, altitude, numm, col, is_self, rawmessage, source) {
     var pos = COORstrin;
-    var timestr = is_self ? null : convertTime(timee);
+    var timestr = is_self ? null : formatPopupTimeDisplay(timee, numm);
     var stPos = 0;
     var arr = [];
+    
+    // 判断是否为海警来源
+    var isMarineWarning = source && (source === 'MSA_NAV' || source === 'MSI_NAV');
     
     for (var i = 0; i < pos.length; i++) {
         if (pos[i] == "-") {
@@ -737,28 +812,43 @@ function drawNot(COORstrin, timee, codee, altitude, numm, col, is_self, rawmessa
     // 创建弹出窗口内容
     var popupContent;
     if (!is_self) {
+        // 根据来源确定标题和标签
+        var title = isMarineWarning ? "海警信息" : "NOTAM信息";
+        var codeLabel = isMarineWarning ? "海警编号:" : "航警编号:";
+        var rawButtonText = isMarineWarning ? "复制原始海警" : "复制原始航警";
+        
         popupContent = "<div class='notam-popup'>" +
             "<div class='notam-popup-header'>" +
-            "<h4>NOTAM信息</h4>" +
+            "<h4>" + title + "</h4>" +
             "</div>" +
             "<div class='notam-popup-body'>" +
             "<div class='popup-info-row'>" +
             "<span class='popup-label'>持续时间:</span>" +
             "<span class='popup-value'>" + timestr + "</span>" +
-            "</div>" +
-            "<div class='popup-info-row row-horizontal'>" +
-            "<div class='popup-col'>" +
-            "<span class='popup-label'>航警编号:</span>" +
-            "<span class='popup-value'>" + codee + "</span>" +
-            "</div>" +
-            "<div class='popup-col'>" +
-            "<span class='popup-label'>航警高度:</span>" +
-            "<span class='popup-value'>" + altitude + "</span>" +
-            "</div>" +
-            "</div>" +
-            "<div class='notam-popup-buttons'>" +
+            "</div>";
+        
+        // 海警显示单列编号，航警显示编号和高度两列
+        if (isMarineWarning) {
+            popupContent += "<div class='popup-info-row'>" +
+                "<span class='popup-label'>" + codeLabel + "</span>" +
+                "<span class='popup-value'>" + codee + "</span>" +
+                "</div>";
+        } else {
+            popupContent += "<div class='popup-info-row row-horizontal'>" +
+                "<div class='popup-col'>" +
+                "<span class='popup-label'>" + codeLabel + "</span>" +
+                "<span class='popup-value'>" + codee + "</span>" +
+                "</div>" +
+                "<div class='popup-col'>" +
+                "<span class='popup-label'>航警高度:</span>" +
+                "<span class='popup-value'>" + altitude + "</span>" +
+                "</div>" +
+                "</div>";
+        }
+        
+        popupContent += "<div class='notam-popup-buttons'>" +
             "<button class='copy copy-coord' onclick=\"handleCopy('" + COORstrin + "')\">复制坐标</button>" +
-            "<button class='copy copy-raw' data-raw-index='" + numm + "'>复制原始航警</button>" +
+            "<button class='copy copy-raw' data-raw-index='" + numm + "'>" + rawButtonText + "</button>" +
             "</div>" +
             "</div>";
     } else {
