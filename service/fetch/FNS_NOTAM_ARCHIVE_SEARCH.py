@@ -48,6 +48,7 @@ def fetch_one(icao, date):
     }
     session = requests.Session()
     session.headers.update(make_headers())
+    session.get("https://notams.aim.faa.gov/notamSearch/nsapp.html", timeout=7)
     num = 30
     page = 0
     rslt = []
