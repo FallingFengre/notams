@@ -75,6 +75,7 @@ def fetch_one(icao):
         payload = payload3
     session = requests.Session()
     session.headers.update(make_headers())
+    session.get("https://notams.aim.faa.gov/notamSearch/nsapp.html", timeout=7)
     num = 30
     page = 0
     rslt = []
@@ -309,7 +310,7 @@ def FNS_NOTAM_SEARCH():
                     data_array = np.vstack(
                         [data_array, np.array([area_code, coordinates_result, time_result, trans_id, raw_message])])
 
-    if len(data_array) > 1:
+    if data_array.ndim > 1:
         df = pd.DataFrame(data_array)
 
         # 按TRANSID排序
