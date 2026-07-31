@@ -70,3 +70,14 @@ BROWSER_MODE = config.getboolean('SERVER', 'browser_mode', fallback=False)
 # pywebview 窗口连接配置（可以与服务器绑定地址不同）
 WEBVIEW_HOST = config.get('WEBVIEW', 'host', fallback=HOST)
 WEBVIEW_PORT = config.getint('WEBVIEW', 'port', fallback=PORT)
+
+# Playwright 浏览器会话配置（用于绕过 FAA 站点 Akamai 拦截）
+# channel: auto 自动检测系统浏览器 / chrome / msedge / chromium
+# window_x/window_y: 把后台 Chrome 窗口移出屏幕
+# page_wait_seconds: 打开页面后等待 Akamai challenge 完成的时间（秒）
+# max_retries: 请求失败后的重试次数
+PW_CHANNEL = config.get('PLAYWRIGHT', 'channel', fallback='auto')
+PW_WINDOW_X = config.getint('PLAYWRIGHT', 'window_x', fallback=-32000)
+PW_WINDOW_Y = config.getint('PLAYWRIGHT', 'window_y', fallback=-32000)
+PW_PAGE_WAIT = config.getint('PLAYWRIGHT', 'page_wait_seconds', fallback=10)
+PW_MAX_RETRIES = config.getint('PLAYWRIGHT', 'max_retries', fallback=3)

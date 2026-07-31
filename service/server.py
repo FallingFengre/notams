@@ -6,12 +6,21 @@ import sys
 import traceback
 from datetime import datetime
 from io import BytesIO
-from tkinter import filedialog
 
-import win32clipboard
 from PIL import Image
 from flask import Flask, jsonify, render_template, send_from_directory
 from flask import request
+
+# Windows 专属导入，macOS/Linux 下图片导出功能不可用
+try:
+    from tkinter import filedialog
+except ImportError:
+    filedialog = None
+
+try:
+    import win32clipboard
+except ImportError:
+    win32clipboard = None
 
 import config
 from service.fetch.FNS_NOTAM_ARCHIVE_SEARCH import FNS_NOTAM_ARCHIVE_SEARCH
@@ -724,6 +733,9 @@ def save_image():
         data = base64.b64decode(encoded)
 
         # 弹出“另存为”对话框（在 webview/GUI 环境中正常工作）
+        if filedialog is None:
+            return jsonify({"error": "保存图片功能仅在 Windows 下可用"}), 400
+
         file_path = filedialog.asksaveasfilename(
             title="保存导出的图片",
             initialfile=default_name,
@@ -738,22 +750,22 @@ def save_image():
             with open(file_path, 'wb') as f:
                 f.write(data)
             try:
-
                 # 从字节数据创建图片对象
                 img = Image.open(BytesIO(data))
 
-                # 转换为BMP格式用于剪贴板
-                output = BytesIO()
-                img.convert('RGB').save(output, 'BMP')
-                bmp_data = output.getvalue()[14:]  # 去掉BMP文件头
+                if win32clipboard is not None:
+                    # 转换为BMP格式用于剪贴板
+                    output = BytesIO()
+                    img.convert('RGB').save(output, 'BMP')
+                    bmp_data = output.getvalue()[14:]  # 去掉BMP文件头
 
-                # 复制到剪贴板
-                win32clipboard.OpenClipboard()
-                win32clipboard.EmptyClipboard()
-                win32clipboard.SetClipboardData(win32clipboard.CF_DIB, bmp_data)
-                win32clipboard.CloseClipboard()
+                    # 复制到剪贴板
+                    win32clipboard.OpenClipboard()
+                    win32clipboard.EmptyClipboard()
+                    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, bmp_data)
+                    win32clipboard.CloseClipboard()
 
-                print("图片已复制到剪贴板")
+                    print("图片已复制到剪贴板")
             except Exception as e:
                 print(f"复制到剪贴板失败: {e}")
             return jsonify({"success": True, "filePath": os.path.abspath(file_path)})

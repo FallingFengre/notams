@@ -1,108 +1,30 @@
 import json
 import os
-import random
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
-import requests
 
 import config
+from service.fetch.faa_browser import get_session
 
 ICAO_CODES = [
     "ZBPE", "ZGZU", "ZHWH", "ZJSA", "ZLHW", "ZPKM", "ZSHA", "ZWUQ", "ZYSH",
     "VHHK", "FUCK", "双曲线你为什么要特立独行","FUCK2","FUCKFAA"
 ]
 
-
-def make_headers():
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
-    ]
-    languages = [
-        "zh-CN,zh;q=0.9,en;q=0.8",
-        "en-US,en;q=0.9,zh;q=0.7",
-        "en-GB,en;q=0.8,zh-CN;q=0.6"
-    ]
-    headers = {
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Encoding": "gzip, deflate",
-        "Accept-Language": random.choice(languages),
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Origin": "https://notams.aim.faa.gov",
-        "Referer": "https://notams.aim.faa.gov/notamSearch/nsapp.html",
-        "User-Agent": random.choice(user_agents),
-    }
-    return headers
-
-
-def fetch_one(icao):
-    url = "https://notams.aim.faa.gov/notamSearch/search"
-    payload = {
-        "searchType": "0",
-        "designatorsForLocation": icao,
-        "offset": "0",
-        "notamsOnly": "false"
-    }
-    payload1 = {
-        "searchType": "4",
-        "offset": "0",
-        "freeFormText": "AEROSPACE",
-        "notamsOnly": "false"
-    }
-    payload2 = {
-        "searchType": "4",
-        "offset": "0",
-        "freeFormText": "DNG ZONE",
-        "notamsOnly": "false"
-    }
-    payload3 = {
-        "searchType": "4",
-        "offset": "0",
-        "freeFormText": "ROCKET LAUNCH",
-        "notamsOnly": "false"
-    }
-    payload4 = {
-        "searchType": "4",
-        "offset": "0",
-        "freeFormText": "AER0SPACE",
-        "notamsOnly": "false"
-    }
+# 构建每个 icao 对应的 payload（含分页 key）
+def _build_payload(icao):
     if icao == "FUCK":
-        payload = payload1
+        return {"searchType": "4", "freeFormText": "AEROSPACE", "notamsOnly": "false"}
     if icao == "双曲线你为什么要特立独行":
-        payload = payload2
+        return {"searchType": "4", "freeFormText": "DNG ZONE", "notamsOnly": "false"}
     if icao == "FUCK2":
-        payload = payload3
+        return {"searchType": "4", "freeFormText": "ROCKET LAUNCH", "notamsOnly": "false"}
     if icao == "FUCKFAA":
-        payload = payload4
-    session = requests.Session()
-    session.headers.update(make_headers())
-    session.get("https://notams.aim.faa.gov/notamSearch/nsapp.html", timeout=7)
-    num = 30
-    page = 0
-    rslt = []
-    while num == 30 and page < 100:
-        try:
-            payload["offset"] = str(page * 30)
-            response = session.post(url, data=payload, timeout=7)
-            if response.status_code == 200:
-                data = response.json()
-                num = len(data.get('notamList', []))
-                rslt.extend(process_notam_data(data))
-            else:
-                print(f"[{icao}]-{page} 请求失败，状态码: {response.status_code}")
-                raise
-        except Exception as e:
-            print(f"[{icao}]-{page} 请求错误: {e}")
-            raise
-        page += 1
-    return icao, rslt
+        return {"searchType": "4", "freeFormText": "AER0SPACE", "notamsOnly": "false"}
+    return {"searchType": "0", "designatorsForLocation": icao, "notamsOnly": "false"}
 
 
 def process_notam_data(data):
@@ -120,68 +42,59 @@ def process_notam_data(data):
     return results
 
 
-def fetch_one_with_retry(icao, max_retries=2):
-    """
-    带有重试机制的 fetch_one 函数。
-    返回 (icao, data, success_status)
-    """
-    for attempt in range(max_retries):
-        try:
-            # 直接调用原始的 fetch_one 函数
-            icao_code, data = fetch_one(icao)
-            # 如果 fetch_one 内部没有抛出异常，我们就认为成功
-            return icao_code, data, True
-        except Exception as e:
-            print(f"[{icao}] 第 {attempt + 1} 次尝试失败: {e}")
-            # 等待3s
-            time.sleep(3)
-            if attempt == max_retries - 1:
-                # 最后一次尝试也失败了
-                print(f"[{icao}] 在 {max_retries} 次尝试后最终失败。")
-                return icao, [], False
-
-
 def fetch():
+    """批量并行获取所有 ICAO NOTAM，在浏览器 JS 层 Promise.all() 并行。"""
     start = time.time()
     results = {}
     success_cnt = 0
     fail_cnt = 0
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        future_to_icao = {executor.submit(fetch_one_with_retry, icao): icao for icao in ICAO_CODES}
-        for future in as_completed(future_to_icao):
-            icao = future_to_icao[future]
-            try:
-                # 获取结果，包含成功状态
-                icao_code, data, was_successful = future.result()
 
-                results[icao_code] = data
-                if was_successful:
-                    success_cnt += 1
-                    print(f"[{icao_code}] 完成，获取 {len(data)} 条 NOTAM")
-                else:
-                    fail_cnt += 1
-                    print(f"[{icao_code}] 最终失败。")
+    session = get_session()
 
-            except Exception as e:
-                # 这里的异常捕获是预防 future.result() 本身出错
-                # (例如，worker线程崩溃了)
-                fail_cnt += 1
-                print(f"处理 [{icao}] 的 future 时发生意外错误: {e}")
-                results[icao] = []  # 确保即使出错，结果字典中也有这个键
+    # 准备 queries: {icao: payload}（第 1 页）
+    queries = {}
+    for icao in ICAO_CODES:
+        queries[icao] = _build_payload(icao)
+
+    # 批量请求第 1 页（浏览器 JS 中 Promise.all 并行）
+    page_results = session.batch_search(queries)
+
+    # 检查哪些需要下一页（num=30 的继续）
+    for icao, data in page_results.items():
+        if data is None:
+            fail_cnt += 1
+            results[icao] = []
+            print(f"[{icao}] 最终失败。")
+            continue
+        notams = process_notam_data(data)
+        results[icao] = notams
+        num = len(data.get('notamList', []))
+        # 如果第一页满了（30 条），继续翻页
+        if num == 30:
+            page = 1
+            while num == 30 and page < 100:
+                try:
+                    payload = dict(queries[icao])
+                    payload['offset'] = str(page * 30)
+                    data_page = session.search(payload)
+                    num = len(data_page.get('notamList', []))
+                    results[icao].extend(process_notam_data(data_page))
+                    page += 1
+                except Exception as e:
+                    print(f"[{icao}]-{page} 分页错误: {e}")
+                    break
+        success_cnt += 1
+        print(f"[{icao}] 完成，获取 {len(results[icao])} 条 NOTAM")
 
     output_data = {
         "timestamp": start,
         "results": results,
-        "stats": {
-            "total": len(ICAO_CODES),
-            "success": success_cnt,
-            "fail": fail_cnt
-        }
+        "stats": {"total": len(ICAO_CODES), "success": success_cnt, "fail": fail_cnt}
     }
     output_data["results"] = dict(sorted(results.items()))
     with open("notam_results.json", "w", encoding="utf-8") as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)
-    print(f"全部 ICAO 和 自由文字 (FUCK) 检索完成")
+    print(f"全部 ICAO 和 自由文字检索完成")
     print(f"成功: {success_cnt} / 失败: {fail_cnt}")
     print(f"总耗时：{time.time() - start:.1f} 秒")
     return results
@@ -196,7 +109,7 @@ def FNS_NOTAM_SEARCH():
             try:
                 data = json.load(f)
                 ts = data.get("timestamp", 0)
-                stats_obj = data.get('stats', {})  # 如果 'stats' 不存在，返回一个空字典 {}
+                stats_obj = data.get('stats', {})
                 failed_cnt = stats_obj.get('fail', 0)
                 if now - ts < config.FETCH_EXPIRE_TIME and "results" in data and failed_cnt == 0:
                     results = data["results"]
@@ -248,7 +161,6 @@ def FNS_NOTAM_SEARCH():
         current_group = []
         max_gap = 20
 
-        # 处理分组坐标
         for i, coord_info in enumerate(coordinates_with_positions):
             if not current_group:
                 current_group.append(coord_info['coord'])
@@ -294,7 +206,6 @@ def FNS_NOTAM_SEARCH():
 
     data_array = np.array(["CODE", "COORDINATES", "TIME", "TRANSID", "RAWMESSAGE"])
 
-    # 处理每个NOTAM
     debug = False
     for icao, notams in results.items():
         for notam in notams:
@@ -321,7 +232,6 @@ def FNS_NOTAM_SEARCH():
     if data_array.ndim > 1:
         df = pd.DataFrame(data_array)
 
-        # 按TRANSID排序
         if len(df) > 1 and df.iloc[0, 0] == "CODE":
             header = df.iloc[0]
             data_df = df.iloc[1:]
@@ -350,4 +260,3 @@ def FNS_NOTAM_SEARCH():
             "SOURCE": [],
         }
     return result
-# print(FNS_NOTAM_SEARCH())

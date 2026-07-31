@@ -1,11 +1,10 @@
-import random
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
-import requests
+
+from service.fetch.faa_browser import get_session
 
 ICAO_CODES = [
     "ZBPE", "ZGZU", "ZHWH", "ZJSA", "ZLHW", "ZPKM", "ZSHA", "ZWUQ", "ZYSH",
@@ -13,32 +12,7 @@ ICAO_CODES = [
 ]
 
 
-def make_headers():
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
-    ]
-    languages = [
-        "zh-CN,zh;q=0.9,en;q=0.8",
-        "en-US,en;q=0.9,zh;q=0.7",
-        "en-GB,en;q=0.8,zh-CN;q=0.6"
-    ]
-    headers = {
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Encoding": "gzip, deflate",
-        "Accept-Language": random.choice(languages),
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Origin": "https://notams.aim.faa.gov",
-        "Referer": "https://notams.aim.faa.gov/notamSearch/nsapp.html",
-        "User-Agent": random.choice(user_agents),
-    }
-    return headers
-
-
 def fetch_one(icao, date):
-    url = "https://notams.aim.faa.gov/notamSearch/search"
     payload = {
         "searchType": "5",
         "archiveDate": date,
@@ -46,9 +20,7 @@ def fetch_one(icao, date):
         "offset": "0",
         "notamsOnly": "false"
     }
-    session = requests.Session()
-    session.headers.update(make_headers())
-    session.get("https://notams.aim.faa.gov/notamSearch/nsapp.html", timeout=7)
+    session = get_session()
     num = 30
     page = 0
     rslt = []
@@ -62,16 +34,11 @@ def fetch_one(icao, date):
         while page_attempts <= max_page_retries and not page_success:
             try:
                 payload["offset"] = str(page * 30)
-                response = session.post(url, data=payload, timeout=7)
-                if response.status_code == 200:
-                    data = response.json()
-                    num = len(data.get('notamList', []))
-                    rslt.extend(process_notam_data(data))
-                    print(f"[进度] {icao} - 第{page + 1}页: 获取 {num} 条 NOTAM")
-                    page_success = True
-                else:
-                    print(f"[进度] {icao} - 第{page + 1}页: 请求失败，状态码 {response.status_code}")
-                    raise
+                data = session.search(payload)
+                num = len(data.get('notamList', []))
+                rslt.extend(process_notam_data(data))
+                print(f"[进度] {icao} - 第{page + 1}页: 获取 {num} 条 NOTAM")
+                page_success = True
             except Exception as e:
                 page_attempts += 1
                 if page_attempts <= max_page_retries:
@@ -127,27 +94,51 @@ def fetch(icao, date, mode=0):
     start = time.time()
     results = {}
     if mode == 0:
-        print(f"[进度] 开始并行检索 {len(ICAO_CODES)} 个区域的历史航警...")
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            sNum = 0
-            fNum = 0
-            future_to_icao = {executor.submit(fetch_one_with_retry, code, date): code for code in ICAO_CODES}
-            completed = 0
-            total = len(ICAO_CODES)
-            for future in as_completed(future_to_icao):
-                code = future_to_icao[future]
-                completed += 1
-                try:
-                    icao_code, data, was_successful = future.result()
-                    results[icao_code] = data
-                    if was_successful:
-                        sNum += 1
-                        print(f"[进度] ({completed}/{total}) {icao_code} 检索完成，获取 {len(data)} 条 NOTAM")
-                    else:
-                        fNum += 1
-                        print(f"[进度] ({completed}/{total}) {icao_code} 检索失败")
-                except Exception as e:
-                    print(f"[进度] ({completed}/{total}) {code} 检索出现异常: {e}")
+        print(f"[进度] 开始批量检索 {len(ICAO_CODES)} 个区域的历史航警...")
+        # 构建 queries: {code: payload}
+        queries = {}
+        for code in ICAO_CODES:
+            queries[code] = {
+                "searchType": "5",
+                "archiveDate": date,
+                "archiveDesignator": code,
+                "offset": "0",
+                "notamsOnly": "false"
+            }
+        # 浏览器 JS 层 Promise.all() 并行第一批
+        session = get_session()
+        first_page = session.batch_search(queries)
+        sNum = 0
+        fNum = 0
+        completed = 0
+        total = len(ICAO_CODES)
+        for code in ICAO_CODES:
+            completed += 1
+            data = first_page.get(code)
+            if data is None:
+                fNum += 1
+                results[code] = []
+                print(f"[进度] ({completed}/{total}) {code} 检索失败")
+                continue
+            notams = process_notam_data(data)
+            results[code] = notams
+            # 翻页（如有更多）
+            num = len(data.get('notamList', []))
+            if num == 30:
+                page = 1
+                while num == 30 and page < 100:
+                    try:
+                        payload = dict(queries[code])
+                        payload['offset'] = str(page * 30)
+                        data_page = session.search(payload)
+                        num = len(data_page.get('notamList', []))
+                        results[code].extend(process_notam_data(data_page))
+                        page += 1
+                    except Exception as e:
+                        print(f"[进度] {code} - 第{page+1}页翻页错误: {e}")
+                        break
+            sNum += 1
+            print(f"[进度] ({completed}/{total}) {code} 检索完成，获取 {len(results[code])} 条 NOTAM")
         print(f"[进度] 所有区域检索完成！成功: {sNum}, 失败: {fNum}")
     if mode == 1:
         icao_code, data, was_successful = fetch_one_with_retry(icao, date)
