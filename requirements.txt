@@ -8,3 +8,4 @@ pillow>=12.0
 Flask>=3.1
 pywin32>=311; sys_platform == "win32"
 playwright>=1.40
+camoufox

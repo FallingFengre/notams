@@ -1,22 +1,22 @@
 """
 FAA NOTAM 浏览器会话管理器。
 
-背景：FAA 网站 (notams.aim.faa.gov) 启用了 Akamai Bot Manager。只有有窗口的
-真实 Chrome 能通过 JS challenge。同一浏览器 context 下多个 page/tab 共享 cookie。
+背景：FAA 网站 (notams.aim.faa.gov) 启用了 Akamai Bot Manager。普通无头
+Chrome（含 stealth 补丁、Patchright）都会被拦截，只有真实浏览器能过。
 
-方案：
-  1. 启动有窗口 Chrome（最小化），完成一次 Akamai challenge；
+方案（Camoufox）：
+  1. Camoufox 是基于 Firefox 的反检测浏览器，headless=True 时既无窗口、
+     又能通过 Akamai challenge（已实测）；
   2. 查询用 page.evaluate() 在浏览器 JS 中 fetch（真实网络栈+TLS指纹）；
-  3. 批量查询用 Promise.all() 在浏览器内部并行，避免 Playwright greenlet 跨线程问题；
+  3. 批量查询用 Promise.all() 在浏览器内部并行，避免 Playwright greenlet
+     跨线程问题；
+  4. 无头模式跨平台（Windows/macOS/Linux），无需 Xvfb / AppleScript / 移窗。
 
-关于 xvfb：无图形环境的 Linux 服务器可先启动 Xvfb 虚拟显示：
-    Xvfb :99 -screen 0 1920x1080x24 &
-    export DISPLAY=:99
-然后正常运行。macOS 不需要 Xvfb，应用启动后自动最小化窗口。
+依赖：
+    pip install camoufox
+    python -m camoufox fetch   # 首次下载 Firefox 内核（约 300MB）
 """
 
-import os
-import sys
 import threading
 import time
 
@@ -70,24 +70,6 @@ async (queries) => {
 """
 
 
-def _candidate_channels():
-    cfg = getattr(config, 'PW_CHANNEL', 'auto')
-    if cfg and cfg != 'auto':
-        return [cfg]
-    if sys.platform == 'darwin':
-        candidates = []
-        if os.path.exists('/Applications/Google Chrome.app'):
-            candidates.append('chrome')
-        if os.path.exists('/Applications/Microsoft Edge.app'):
-            candidates.append('msedge')
-        if os.path.exists('/Applications/Chromium.app'):
-            candidates.append('chromium')
-        return candidates or ['chrome']
-    if sys.platform.startswith('win'):
-        return ['chrome', 'msedge']
-    return ['chrome', 'msedge', 'chromium']
-
-
 class FaaBrowserSession:
     """FAA NOTAM 浏览器会话。
 
@@ -108,60 +90,33 @@ class FaaBrowserSession:
     # ========== 初始化 ==========
 
     def _launch(self):
-        """启动浏览器，完成 Akamai challenge。必须在同一线程调用。"""
+        """启动 Camoufox 无头浏览器，完成 Akamai challenge。必须在同一线程调用。"""
         self._close_unsafe()
 
-        if not os.environ.get('DISPLAY'):
-            if sys.platform == 'darwin':
-                os.environ['DISPLAY'] = ':0'
-            elif sys.platform.startswith('linux'):
-                raise RuntimeError(
-                    '无可用的图形显示。请先启动 Xvfb:\n'
-                    '  Xvfb :99 -screen 0 1920x1080x24 &\n'
-                    '  export DISPLAY=:99\n然后重新运行。')
-
         from playwright.sync_api import sync_playwright
+        from camoufox.utils import launch_options
 
         self._pw = sync_playwright().start()
-        args = [
-            '--disable-blink-features=AutomationControlled',
-            '--no-first-run',
-            '--disable-default-apps',
-            '--disable-extensions',
-            '--disable-background-networking',
-            '--disable-sync',
-        ]
 
-        # Windows/Linux: 窗口移到屏幕外隐藏
-        if sys.platform != 'darwin':
-            args.append(f'--window-position={config.PW_WINDOW_X},{config.PW_WINDOW_Y}')
-
+        # Camoufox：无窗口 + 反检测指纹，能过 Akamai
         browser = None
-        last_err = None
-        for ch in _candidate_channels():
+        try:
+            opts = launch_options(headless=True)
+            browser = self._pw.firefox.launch(**opts)
+            print('[FAA] 已启动 Camoufox 无头浏览器')
+        except Exception as e:
             try:
-                browser = self._pw.chromium.launch(channel=ch, headless=False, args=args)
-                print(f'[FAA] 浏览器已启动 (channel={ch})')
-                break
-            except Exception as e:
-                last_err = e
-                continue
-
-        if browser is None:
-            try:
-                browser = self._pw.chromium.launch(headless=False, args=args)
-                print('[FAA] 已启动 playwright bundled Chromium')
-            except Exception as e:
-                raise RuntimeError(
-                    f'无法启动浏览器: {last_err} / {e}\n'
-                    '请安装 Chrome/Edge，或执行 `playwright install chromium`。')
+                if self._pw:
+                    self._pw.stop()
+            except Exception:
+                pass
+            self._pw = None
+            raise RuntimeError(
+                f'无法启动 Camoufox: {e}\n'
+                '请先执行: pip install camoufox  然后  python -m camoufox fetch。')
 
         try:
-            context = browser.new_context(
-                locale='en-US',
-                timezone_id='America/New_York',
-                viewport={'width': 1400, 'height': 900},
-            )
+            context = browser.new_context()
             page = context.new_page()
 
             page.goto(NSAPP_URL, timeout=60000, wait_until='domcontentloaded')
@@ -174,7 +129,10 @@ class FaaBrowserSession:
             print('[FAA] Akamai challenge 通过，会话已就绪')
 
         except Exception:
-            browser.close()
+            try:
+                browser.close()
+            except Exception:
+                pass
             raise
 
         self._browser = browser
@@ -182,17 +140,6 @@ class FaaBrowserSession:
         self._page = page
         self._initialized = True
         self._owner_thread = threading.current_thread()
-
-        # macOS: 用 AppleScript 最小化 Chrome 窗口（Xvfb 不适用 macOS）
-        if sys.platform == 'darwin':
-            import subprocess
-            try:
-                subprocess.run(
-                    ['osascript', '-e',
-                     'tell application "System Events" to set visible of process "Google Chrome" to false'],
-                    capture_output=True, timeout=5)
-            except Exception:
-                pass
 
     # ========== 查询 ==========
 
@@ -235,8 +182,9 @@ class FaaBrowserSession:
         浏览器 JS 中用 Promise.all() 并行所有 fetch。
         必须在同一线程调用。
         """
-        # 分批（每批最多 6 个并行，避免浏览器限流）
-        batch_size = 6
+        # 并行批大小。全文搜索（searchType=4，如 AEROSPACE/ROCKET LAUNCH）
+        # 服务端单次约 5s，是主要耗时；实测 14 个并行无 403，故一次并行全部。
+        batch_size = 15
         keys = list(queries.keys())
         all_results = {}
 
@@ -320,7 +268,7 @@ class FaaBrowserSession:
             'connection', 'timeout', 'protocol', 'network',
             'target closed', 'browser has been closed', 'websocket',
             'eof', 'reset', 'refused', 'tunneling',
-            'page crashed', 'target crashed',
+            'page crashed', 'target crashed', 'ns_error',
         ])
 
     def _close_unsafe(self):

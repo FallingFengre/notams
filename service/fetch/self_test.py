@@ -6,16 +6,12 @@ FAA NOTAM 连通性自测脚本。
 或:
     python3 -m service.fetch.self_test
 
-会启动一个移出屏幕的 Chrome 窗口完成 Akamai 验证（需图形界面环境），
+会启动 Camoufox 无头浏览器完成 Akamai 验证（无窗口，跨平台），
 依次测试三种查询：按 ICAO、全文搜索、归档。
 """
 
 import os
 import sys
-
-# 确保 DISPLAY 环境变量（macOS/SSH 环境下可能缺失）
-if not os.environ.get('DISPLAY'):
-    os.environ['DISPLAY'] = ':0'
 
 # 保证从任意路径运行时都能 import service 包
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))

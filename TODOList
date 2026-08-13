@@ -17,4 +17,9 @@ TODO list:
         计算航警落区各组对边的斜率、分析落区长轴方向；找到航警中心点；计算落区与各个发射场连线的斜率
     7. （远期目标）实现安卓端应用的移植
 
+    8. Camoufox 无头方案 Windows 实机验证（macOS 已通过 self_test）：
+        8.1 执行 "python -m camoufox fetch" 能正常下载 Windows 内核并启动
+        8.2 "python service/fetch/self_test.py" 三种查询全部通过
+        8.3 打包 exe 时确认 Camoufox 内核的携带/下载方案（内核在缓存目录，不随 exe 走）
+
     # 可以继续补充
