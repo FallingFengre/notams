@@ -11,16 +11,18 @@ from PIL import Image
 from flask import Flask, jsonify, render_template, send_from_directory
 from flask import request
 
-# Windows 专属导入，macOS/Linux 下图片导出功能不可用
-try:
-    from tkinter import filedialog
-except ImportError:
-    filedialog = None
-
-try:
-    import win32clipboard
-except ImportError:
-    win32clipboard = None
+# Windows 原生对话框与剪贴板可选导入，macOS/Linux 下自动回退至浏览器下载
+if sys.platform == 'win32':
+    try:
+        from tkinter import filedialog
+    except ImportError:
+        filedialog = None
+    try:
+        import win32clipboard
+    except ImportError:
+        win32clipboard = None
+else:
+    filedialog = win32clipboard = None
 
 import config
 from service.fetch.FNS_NOTAM_ARCHIVE_SEARCH import FNS_NOTAM_ARCHIVE_SEARCH
@@ -356,7 +358,8 @@ def extract_altitude(raw_message_lst):
 
 
 app = Flask(__name__)
-web_path = os.path.normpath('../web/')
+base_dir = os.path.dirname(os.path.abspath(__file__))
+web_path = os.path.abspath(os.path.join(base_dir, '..', 'web'))
 app.template_folder = os.path.join(web_path, 'templates')
 app.static_folder = os.path.join(web_path, 'static')
 
@@ -734,7 +737,11 @@ def save_image():
 
         # 弹出“另存为”对话框（在 webview/GUI 环境中正常工作）
         if filedialog is None:
-            return jsonify({"error": "保存图片功能仅在 Windows 下可用"}), 400
+            return jsonify({
+                "success": False,
+                "fallback_download": True,
+                "message": "当前平台不支持原生保存对话框，已自动切换为浏览器下载"
+            }), 200
 
         file_path = filedialog.asksaveasfilename(
             title="保存导出的图片",
