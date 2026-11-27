@@ -212,3 +212,7 @@ __marimo__/
 # data file
 notam_results.json
 msi_result.json
+
+# local OS & AI tool state
+.DS_Store
+.claude/
