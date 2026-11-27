@@ -4,10 +4,22 @@ import threading
 import time
 import webbrowser
 
-import webview
-
 import config
 from service.server import start_flask
+
+
+def run_browser_mode(host, port):
+    url = f"http://{host}:{port}"
+    try:
+        webbrowser.open(url)
+        print(f"使用时请不要关闭控制台，在浏览器中访问 {url} 以开始使用")
+        print("按 Ctrl-C 可退出程序")
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("收到中断信号，程序退出")
+    finally:
+        sys.exit(0)
 
 
 def wait_for_server(host, port, timeout=5):
@@ -41,19 +53,10 @@ if __name__ == '__main__':
         time.sleep(0.5)
 
     if config.BROWSER_MODE:
-        try:
-            webbrowser.open(f"http://{WEBVIEW_HOST}:{WEBVIEW_PORT}")
-            print(
-                f"使用时请不要关闭控制台，在浏览器中访问 http://{WEBVIEW_HOST}:{WEBVIEW_PORT} 以开始使用")
-            print("按 Ctrl-C 可退出程序")
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("收到中断信号，程序退出")
-        finally:
-            sys.exit(0)
+        run_browser_mode(WEBVIEW_HOST, WEBVIEW_PORT)
     else:
         try:
+            import webview
             window = webview.create_window(
                 'NOTAM落区绘制工具',
                 f"http://{WEBVIEW_HOST}:{WEBVIEW_PORT}/placeholder",
@@ -62,6 +65,9 @@ if __name__ == '__main__':
                 min_size=(800, 600)
             )
             webview.start()
+        except ImportError:
+            print("未检测到 pywebview，自动切换为浏览器模式...")
+            run_browser_mode(WEBVIEW_HOST, WEBVIEW_PORT)
         except KeyboardInterrupt:
             pass
         finally:

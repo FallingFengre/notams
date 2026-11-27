@@ -1,6 +1,15 @@
 // 检测是否在 PyWebView 环境中
 const isPyWebView = typeof window.pywebview !== 'undefined';
 
+function triggerBrowserDownload(dataURL, fileName) {
+  const link = document.createElement('a');
+  link.download = fileName;
+  link.href = dataURL;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
 // 主导出函数 (使用 leaflet-image)
 async function exportMapAsImage() {
   const exportBtn = document.getElementById('btnExportImage');
@@ -93,10 +102,10 @@ async function exportMapAsImage() {
       const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
       const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '').substring(0, 6);
       const fileName = `NOTAM_落区_${dateStr}_${timeStr}.${format}`;
+      const dataURL = canvas.toDataURL(`image/${format}`, format === 'jpeg' ? 0.92 : 1.0);
 
       if (isPyWebView) {
         try {
-          const dataURL = canvas.toDataURL(`image/${format}`, format === 'jpeg' ? 0.92 : 1.0);
           const response = await fetch('/save_image', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -106,6 +115,9 @@ async function exportMapAsImage() {
 
           if (result.success) {
             showNotification(`已保存至：${result.filePath}\n图片已同时复制到剪贴板`, 'success');
+          } else if (result.fallback_download) {
+            triggerBrowserDownload(dataURL, fileName);
+            showNotification('导出成功（已通过浏览器下载）', 'success');
           } else if (result.message) {
             showNotification(result.message, 'info');
           } else {
@@ -113,21 +125,11 @@ async function exportMapAsImage() {
           }
         } catch (e) {
           console.error('保存失败:', e);
-          const link = document.createElement('a');
-          link.download = fileName;
-          link.href = canvas.toDataURL(`image/${format}`, format === 'jpeg' ? 0.92 : 1.0);
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+          triggerBrowserDownload(dataURL, fileName);
           showNotification('保存失败，已直接下载', 'warning');
         }
       } else {
-        const link = document.createElement('a');
-        link.download = fileName;
-        link.href = canvas.toDataURL(`image/${format}`, format === 'jpeg' ? 0.92 : 1.0);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        triggerBrowserDownload(dataURL, fileName);
         showNotification('导出成功！', 'success');
       }
     }, {
