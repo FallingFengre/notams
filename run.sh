@@ -26,18 +26,18 @@ while true; do
             echo ">>> 安装 Python 依赖:"
             echo "    pip install -r requirements.txt"
             echo ""
-            echo ">>> 说明: 本项目使用系统 Chrome/Edge 作为浏览器会话，"
-            echo "    无需执行 playwright install；"
-            echo "    若目标机器没有 Chrome/Edge，请先执行:"
-            echo "    playwright install chromium"
+            echo ">>> 首次运行需下载 Camoufox 无头浏览器内核:"
+            echo "    python3 -m camoufox fetch"
+            echo ""
+            echo ">>> 说明: 若仅使用离线手动绘制解析功能，可跳过浏览器内核下载。"
             ;;
         2)
             echo ""
             echo ">>> 测试 FAA 连通性:"
             echo "    python3 service/fetch/self_test.py"
             echo ""
-            echo ">>> 说明: 会启动一个移出屏幕的 Chrome 窗口完成 Akamai 验证，"
-            echo "    需在图形界面环境中运行。"
+            echo ">>> 说明: 会启动 Camoufox 无头浏览器完成页面会话初始化并测试接口连通性，"
+            echo "    无弹窗、跨平台（Windows/macOS/Linux 均可运行）。"
             ;;
         3)
             echo ""
@@ -53,8 +53,7 @@ while true; do
             echo "    pip install pyinstaller"
             echo "    pyinstaller --onefile --windowed --icon=icon.ico --name=notamChecker main.py"
             echo ""
-            echo ">>> 说明: 打包后的 exe 依赖目标机器装有 Chrome 或 Edge"
-            echo "    (channel=msedge 时使用 Windows 自带 Edge，无需额外安装)。"
+            echo ">>> 说明: 若需打包便携版本，需同步确认目标环境的 Camoufox 内核缓存路径。"
             ;;
         0)
             echo "退出。"

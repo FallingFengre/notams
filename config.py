@@ -71,10 +71,10 @@ BROWSER_MODE = config.getboolean('SERVER', 'browser_mode', fallback=False)
 WEBVIEW_HOST = config.get('WEBVIEW', 'host', fallback=HOST)
 WEBVIEW_PORT = config.getint('WEBVIEW', 'port', fallback=PORT)
 
-# Playwright 浏览器会话配置（用于绕过 FAA 站点 Akamai 拦截）
-# channel: auto 自动检测系统浏览器 / chrome / msedge / chromium
-# window_x/window_y: 把后台 Chrome 窗口移出屏幕
-# page_wait_seconds: 打开页面后等待 Akamai challenge 完成的时间（秒）
+# Camoufox 无头浏览器会话配置（用于加载 FAA 公开查询页与请求重试）
+# channel: 保留兼容字段（无头模式无需指定浏览器通道）
+# window_x/window_y: 保留兼容字段（无头模式无窗口）
+# page_wait_seconds: 打开页面后等待会话初始化与页面就绪的时间（秒）
 # max_retries: 请求失败后的重试次数
 PW_CHANNEL = config.get('PLAYWRIGHT', 'channel', fallback='auto')
 PW_WINDOW_X = config.getint('PLAYWRIGHT', 'window_x', fallback=-32000)
