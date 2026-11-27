@@ -4,80 +4,14 @@
 import os
 import re
 
-import numpy as np
-import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
+from service.area_geometry import parse_areas
+from service.fetch.aviation_parser import has_unlimited_ceiling, is_relevant, records_to_columns
+
 
 def dinsQueryWeb(icao_codes):
-    data_array = np.array(["CODE", "COORDINATES", "TIME"])
-
-    def removeC(text):
-        return re.sub(r'[\r\n\[\]...]+', ' ', text)
-
-    def removeC2(text):
-        return re.sub(r'[\s+\r\n\[\]...]+', '', text)
-
-    def extract_coordinate_groups(text):
-        patterns = [
-            r'[NS]\d{6}[WE]\d{7}',
-            r'[NS]\d{4}[WE]\d{5}',
-            r'\d{6}[NS]\d{7}[WE]',
-            r'\d{4}[NS]\d{5}[WE]',
-        ]
-        combined_pattern = '|'.join(f'({p})' for p in patterns)
-        coordinates_with_positions = []
-        for match in re.finditer(combined_pattern, text):
-            coord = match.group()
-            coord = re.sub(r'\s+', '', coord)
-            coord = standardize_coordinate(coord)
-            if coord:
-                coordinates_with_positions.append({
-                    'coord': coord,
-                    'start': match.start(),
-                    'end': match.end()
-                })
-        groups = []
-        current_group = []
-        max_gap = 20
-
-        # 处理分组坐标，避免将两个落区绘制为一个落区导致混乱，同时避免将非落区的航警中零散的坐标提取为落区
-        for i, coord_info in enumerate(coordinates_with_positions):
-            if not current_group:
-                current_group.append(coord_info['coord'])
-            else:
-                # 计算与前一个坐标的字符距离
-                prev_end = coordinates_with_positions[i - 1]['end']
-                curr_start = coord_info['start']
-                gap = curr_start - prev_end
-
-                if gap <= max_gap:
-                    current_group.append(coord_info['coord'])
-                else:
-                    if len(current_group) >= 3:  # 只保留至少3个点的组
-                        groups.append(current_group)
-                    current_group = [coord_info['coord']]
-
-        if len(current_group) >= 3:
-            groups.append(current_group)
-
-        return groups
-
-    def standardize_coordinate(coord):
-        coord = coord.replace(' ', '')
-        match1 = re.match(r'^([NS])(\d{4,6})([WE])(\d{5,7})$', coord)
-        if match1:
-            return coord
-        match2 = re.match(r'^(\d{4,6})([NS])(\d{5,7})([WE])$', coord)
-        if match2:
-            return f"{match2.group(2)}{match2.group(1)}{match2.group(4)}{match2.group(3)}"
-        match3 = re.match(r'^(\d{4})([NS])(\d{5})([WE])$', coord)
-        if match3:
-            return f"{match3.group(2)}{match3.group(1)}{match3.group(4)}{match3.group(3)}"
-
-        return None
-
     form_url = "https://www.notams.faa.gov/dinsQueryWeb/queryRetrievalMapAction.do"
 
     headers = {
@@ -125,44 +59,26 @@ def dinsQueryWeb(icao_codes):
 
     soup = BeautifulSoup(response.text, 'html.parser')
     td_elements = soup.find_all('td', class_='textBlack12', valign='top')
-    parsed_count = 0
+    records = []
+    seen_coordinates = set()
     for td in td_elements:
         pre_tag = td.find('pre')
         if pre_tag:
-            text_content = pre_tag.get_text(strip=True)
-            text_content = removeC(text_content)
-            if "A TEMPORARY" in text_content or "AEROSPACE" in text_content:
-                fuck = removeC2(text_content)
-                coordinate_groups = extract_coordinate_groups(fuck)
+            raw = pre_tag.get_text()
+            text_content = re.sub(r'[\r\n\[\]...]+', ' ', raw)
+            if is_relevant(raw) and has_unlimited_ceiling(raw):
+                areas = parse_areas(raw)
                 time_pattern = r"\d{2} [A-Z]{3} \d{2}:\d{2} \d{4} UNTIL \d{2} [A-Z]{3} \d{2}:\d{2} \d{4}"
                 time_info = re.search(time_pattern, text_content)
                 time_result = time_info.group() if time_info else "00 JAN 00:00 0000 UNTIL 00 JAN 00:00 0000"
                 currentText = text_content.split('-', 1)
                 code = currentText[0] if currentText else "UNKNOWN"
-                for i, group in enumerate(coordinate_groups):
-                    coordinates_result = '-'.join(group)
-                    if len(coordinate_groups) > 1:
-                        area_code = f"{code}_AREA{i + 1}"
-                    else:
-                        area_code = code
-                    data_array = np.vstack([data_array, np.array([area_code, coordinates_result, time_result])])
-                    parsed_count += 1
-
-    if len(data_array) > 1:
-        df = pd.DataFrame(data_array)
-        df_unique = df.drop_duplicates(subset=1)
-        data_array = df_unique.to_numpy()
-        if len(data_array) > 1 and data_array[0, 0] == "CODE":
-            data_array = data_array[1:]
-        result = {
-            "CODE": data_array[:, 0].tolist() if len(data_array) > 0 else [],
-            "COORDINATES": data_array[:, 1].tolist() if len(data_array) > 0 else [],
-            "TIME": data_array[:, 2].tolist() if len(data_array) > 0 else [],
-        }
-    else:
-        result = {
-            "CODE": [],
-            "COORDINATES": [],
-            "TIME": [],
-        }
-    return result
+                for i, area in enumerate(areas, 1):
+                    coordinates = area['coordinates']
+                    if coordinates in seen_coordinates:
+                        continue
+                    seen_coordinates.add(coordinates)
+                    area_code = f'{code}_AREA{i}' if len(areas) > 1 else code
+                    records.append({'CODE': area_code, 'COORDINATES': coordinates, 'GEOMETRY': area,
+                                    'TIME': time_result, 'TRANSID': code, 'RAWMESSAGE': raw})
+    return records_to_columns(records, 'DINS')

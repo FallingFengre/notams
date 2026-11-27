@@ -507,7 +507,8 @@ function drawAllArchiveNotams() {
             archiveDict.CODE[i],
             i,
             col,
-            archiveDict.RAWMESSAGE?.[i] || ""
+            archiveDict.RAWMESSAGE?.[i] || "",
+            archiveDict.GEOMETRY?.[i]
         );
         // 保持之前的可见状态
         if (archiveVisibleState[i] === false) {
@@ -520,71 +521,21 @@ function drawAllArchiveNotams() {
 }
 
 // 绘制单个历史航警
-function drawArchiveNotam(COORstrin, timee, codee, numm, col, rawmessage) {
-    var pos = COORstrin;
-    console.log(timee);
-    var timestr = convertTime(timee);
-    console.log(timestr);
-    var stPos = 0;
-    var arr = [];
-    
-    for (var i = 0; i < pos.length; i++) {
-        if (pos[i] == "-") {
-            var tmp = pos.substring(stPos, i);
-            arr.push(tmp);
-            stPos = i + 1;
-        }
-    }
-    arr.push(pos.substring(stPos, pos.length));
-    
-    var _TheArray = [];
-    for (var i = 0; i < arr.length; i++) {
-        _TheArray.push(pullOut(arr[i]));
-    }
-    
-    var latlngs = [];
-    for (var i = 0; i < _TheArray.length; i++) {
-        if (_TheArray[i]) {
-            latlngs.push([_TheArray[i][1], _TheArray[i][0]]);
-        }
-    }
-
-    if (latlngs.length < 3) return;
-
-    // 创建多边形
-    var tmpPolygon = L.polygon(latlngs, {
+function drawArchiveNotam(COORstrin, timee, codee, numm, col, rawmessage, geometry) {
+    const tmpPolygon = createNotamLayer(geometry, COORstrin, {
         color: col,
         weight: 2,
         opacity: 0.8,
         fillColor: col,
         fillOpacity: 0.5,
-        dashArray: '3, 3'  // 虚线样式，区分历史航警
-    }).addTo(map);
+        dashArray: '3, 3'
+    });
+    if (!tmpPolygon) return;
+    tmpPolygon.addTo(map);
 
-    // 创建弹出窗口
-    var popupContent = "<div class='notam-popup'>" +
-        "<div class='notam-popup-header' style='background: linear-gradient(135deg, #1e9613ff 0%, #127209ff 100%);'>" +
-        "<h4>历史NOTAM信息</h4>" +
-        "</div>" +
-        "<div class='notam-popup-body'>" +
-        "<div class='popup-info-row'>" +
-        "<span class='popup-label'>持续时间:</span>" +
-        "<span class='popup-value'>" + timestr + "</span>" +
-        "</div>" +
-        "<div class='popup-info-row'>" +
-        "<span class='popup-label'>航警编号:</span>" +
-        "<span class='popup-value'>" + codee + "</span>" +
-        "</div>" +
-        "</div>" +
-        "<div class='notam-popup-buttons'>" +
-        "<button class='copy copy-coord' onclick=\"handleCopy('" + COORstrin + "')\">复制坐标</button>" +
-        "<button class='copy copy-raw' onclick=\"handleCopy('" + (rawmessage || '').replace(/'/g, "\\'").replace(/\n/g, '\\n') + "')\">复制原始航警</button>" +
-        "</div>" +
-        "</div>";
-
-    tmpPolygon.bindPopup(popupContent, {
-        maxWidth: 300,
-        className: 'notam-info-popup'
+    bindNotamPopup(tmpPolygon, {
+        title: '历史NOTAM信息', code: codee, time: timee, raw: rawmessage,
+        coordinates: COORstrin, fir: archiveDict?.FIR?.[numm]
     });
 
     polygonArchive[numm] = tmpPolygon;
@@ -603,11 +554,8 @@ function clearArchiveNotams() {
 function locateToArchiveNotam(index) {
     if (!archiveDict || index >= archiveDict.NUM) return;
     try {
-        const points = parseCoordinatesToPoints(archiveDict.COORDINATES[index]);
-        if (points && points.length > 0) {
-            const bounds = L.latLngBounds(points);
-            map.fitBounds(bounds, { padding: [80, 80], maxZoom: 6 });
-        }
+        const layer = polygonArchive[index];
+        if (layer) map.fitBounds(layer.getBounds(), {padding: [80, 80], maxZoom: 6});
     } catch (e) {
         console.error(e);
     }
@@ -647,7 +595,7 @@ function showRegionOnMap(regionCode) {
     // 对于内陆及近海区域，只显示标签不显示边界
     if (regionCode === 'internal') {
         // 只添加标签
-        const label = L.marker(region.center, {
+        const label = worldMarker(region.center, {
             icon: L.divIcon({
                 className: 'region-label',
                 html: `<div style="background: rgba(52, 152, 219, 0.9); color: white; padding: 5px 10px; border-radius: 5px; font-weight: bold; white-space: nowrap;">${region.name}</div>`,
@@ -662,7 +610,8 @@ function showRegionOnMap(regionCode) {
         map.setView(region.center, 4);
     } else {
         // 其他区域正常显示边界和标签
-        currentRegionOverlay = L.polygon(region.bounds, {
+        currentRegionOverlay = worldPolygon(region.bounds, {
+            interactive: false,
             color: '#1c7700ff',
             weight: 2,
             opacity: 0.8,
@@ -672,7 +621,7 @@ function showRegionOnMap(regionCode) {
         }).addTo(map);
         
         // 添加标签
-        const label = L.marker(region.center, {
+        const label = worldMarker(region.center, {
             icon: L.divIcon({
                 className: 'region-label',
                 html: `<div style="background: rgba(22, 110, 37, 1); color: white; padding: 5px 10px; border-radius: 5px; font-weight: bold; white-space: nowrap;">${region.name}</div>`,

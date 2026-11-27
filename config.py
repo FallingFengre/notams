@@ -1,10 +1,11 @@
 import configparser
 import os
 
-# 是否使用 dins/fns/msa/msi 数据源
+# 实时查询使用 DAIP。FAA 历史查询由 /fetch_archive 单独调用。
 FETCH_DINS = False
-FETCH_FNS = True
-FETCH_MSA = True  # 中国海事局
+FETCH_DAIP = True
+FETCH_FNS = False
+FETCH_MSA = False  # 中国海事局
 FETCH_MSI = False  # U.S. Maritime Administration
 
 # 本地航警数据过期时间，单位秒
@@ -26,11 +27,13 @@ EXCLUDE_RECTS = [
     {'lat_min': 41.33, 'lat_max': 45.44, 'lon_min': 107.65, 'lon_max': 113.50}
 ]
 
-ICAO_CODES_DEFAULT = " ".join([
-    "ZBPE", "ZGZU", "ZHWH", "ZJSA", "ZLHW", "ZPKM", "ZSHA", "ZWUQ", "ZYSH", "VVTS", "WSJC", "WIIF", "YMMM", "WMFC",
-    "RPHI", "AYPM", "AGGG", "ANAU", "NFFF", "KZAK", "VYYF", "VCCF", "VOMF", "WAAF", "RJJJ", "RCAA", "YBBB", "VVGL",
-    "VVHN", "VVHM", "RCSP", "VVHM", "WIIF"
-])
+ICAO_CODES_DEFAULT = (
+    "AGGG AYPM DGAC EGGX FAJO FIMM KZAK LPPO MDCS MKJK MMFO MMFR MTEG "
+    "MUFH NFFF NTTT NZZC NZZO RCAA RCSP RJJJ RKRR RPHI SCIZ SCTZ SMPM "
+    "SOOO TNCF TTZP VCCF VECF VHHK VOMF VVGL VVHM VVHN VVTS VYYF WAAF "
+    "WIIF WMFC WSJC YBBB YMMM ZBPE ZGZU ZHWH ZJSA ZLHW ZPKM ZSHA ZWUQ "
+    "ZYSH"
+)
 
 
 def load_config():

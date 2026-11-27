@@ -25,6 +25,8 @@ else:
     filedialog = win32clipboard = None
 
 import config
+from service.area_geometry import parse_areas
+from service.fetch.daip import current_notams as daip_current_notams
 from service.fetch.FNS_NOTAM_ARCHIVE_SEARCH import FNS_NOTAM_ARCHIVE_SEARCH
 from service.fetch.FNS_NOTAM_SEARCH import FNS_NOTAM_SEARCH
 from service.fetch.dinsQueryWeb import dinsQueryWeb
@@ -463,6 +465,18 @@ def get_config():
     })
 
 
+@app.post('/parse_areas')
+def parse_manual_areas():
+    payload = request.get_json(silent=True)
+    text = payload.get('text') if isinstance(payload, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        return jsonify(error='请填写航警正文或坐标'), 400
+    areas = parse_areas(text)
+    if not areas:
+        return jsonify(error='未识别到可绘制的区域。请提供至少三个不同顶点，或明确的圆心和半径。'), 422
+    return jsonify(areas=areas)
+
+
 @app.route('/fetch_archive', methods=['POST'])
 def fetch_archive():
     try:
@@ -487,6 +501,7 @@ def fetch_archive():
         dataDict = {
             "CODE": archive_data.get("CODE", []),
             "COORDINATES": archive_data.get("COORDINATES", []),
+            "GEOMETRY": archive_data.get("GEOMETRY", []),
             "TIME": archive_data.get("TIME", []),
             "PLATID": archive_data.get("TRANSID", []),
             "RAWMESSAGE": archive_data.get("RAWMESSAGE", []),
@@ -517,6 +532,7 @@ def fetch():
     dataDict = {
         "CODE": [],
         "COORDINATES": [],
+        "GEOMETRY": [],
         "TIME": [],
         "PLATID": [],
         "ALTITUDE": [],
@@ -553,6 +569,7 @@ def fetch():
                 if not is_duplicate:
                     dataDict["CODE"].append(code)
                     dataDict["COORDINATES"].append(coords)
+                    dataDict["GEOMETRY"].append(dins_data["GEOMETRY"][i])
                     dataDict["TIME"].append(time_str)
                     dataDict["PLATID"].append(dins_data["TRANSID"][i])
                     dataDict["RAWMESSAGE"].append(dins_data["RAWMESSAGE"][i])
@@ -560,11 +577,22 @@ def fetch():
                     added_entries.append(new_entry)
             print(f"爬取来源{source_num}: dinsQueryWeb, 获取 {len(dins_data['CODE'])} 条航警")
 
+    aviation_sources = []
+    if config.FETCH_DAIP:
+        aviation_sources.append(("DAIP", lambda: daip_current_notams(current_icao_codes)))
     if config.FETCH_FNS:
-        FNS_data = FNS_NOTAM_SEARCH()
+        aviation_sources.append(("FNS_NOTAM", FNS_NOTAM_SEARCH))
+    for provider, fetch_aviation in aviation_sources:
+        try:
+            FNS_data = fetch_aviation()
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(f"[错误] {provider} 查询失败: {exc}")
+            dataDict.setdefault("ERRORS", {})[provider] = str(exc)
+            continue
         if FNS_data.get("CODE"):
             source_num += 1
             fns_code = []
+            fns_geometry = []
             fns_coord = []
             fns_time = []
             fns_id = []
@@ -613,6 +641,7 @@ def fetch():
 
                 if not excluded:
                     fns_code.append(code)
+                    fns_geometry.append(FNS_data["GEOMETRY"][idx])
                     fns_coord.append(coords_str)
                     fns_time.append(t)
                     fns_id.append(id)
@@ -638,12 +667,13 @@ def fetch():
                     if not is_duplicate:
                         dataDict["CODE"].append(code)
                         dataDict["COORDINATES"].append(coords)
+                        dataDict["GEOMETRY"].append(fns_geometry[i])
                         dataDict["TIME"].append(time_str)
                         dataDict["PLATID"].append(fns_id[i])
                         dataDict["RAWMESSAGE"].append(fns_raw[i])
                         dataDict["SOURCE"].append(source)
                         added_entries.append(new_entry)
-            print(f"爬取来源{source_num}: FNS_NOTAM_SEARCH, 获取 {len(fns_code)} 条航警")
+            print(f"爬取来源{source_num}: {provider}, 获取 {len(fns_code)} 条航警")
 
     # 中国海事局海警
     if config.FETCH_MSA:
@@ -668,6 +698,7 @@ def fetch():
                     if not is_duplicate:
                         dataDict["CODE"].append(code)
                         dataDict["COORDINATES"].append(coords)
+                        dataDict["GEOMETRY"].append(None)
                         dataDict["TIME"].append(time_str)
                         dataDict["PLATID"].append(msa_data["TRANSID"][i])
                         dataDict["RAWMESSAGE"].append(msa_data["RAWMESSAGE"][i])
@@ -701,6 +732,7 @@ def fetch():
                     if not is_duplicate:
                         dataDict["CODE"].append(code)
                         dataDict["COORDINATES"].append(coords)
+                        dataDict["GEOMETRY"].append(None)
                         dataDict["TIME"].append(time_str)
                         dataDict["PLATID"].append(msi_data["TRANSID"][i])
                         dataDict["RAWMESSAGE"].append(msi_data["RAWMESSAGE"][i])

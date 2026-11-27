@@ -2,7 +2,6 @@ let expanded = false;
 let warningCount = 0;
 let manualNotams = []; // 存储手动绘制的航警信息（统一数据结构）
 let manualVisibleState = {}; // 存储每个手动航警的显示/隐藏状态
-let manualPolygons = []; // 存储手动绘制的多边形对象
 
 /**
  * 创建统一的航警数据对象
@@ -22,7 +21,6 @@ function createNotamData(params) {
         ROCKET: params.ROCKET || '',            // 火箭型号
         LAUNCH: params.LAUNCH || '',            // 发射场
         // 前端显示相关
-        coords: params.coords || [],            // 解析后的坐标数组
         color: params.color || '#0078ff',       // 显示颜色
         polygon: params.polygon || null         // Leaflet多边形对象
     };
@@ -98,351 +96,53 @@ function toggleDrawer() {
     toggleManualDrawer();
 }
 
-function drawWarning() {
-    const text = document.getElementById('warningInput').value.trim();
-    const colorInput = document.getElementById('manualColorPicker');
-    const color = colorInput ? colorInput.value : '#0078ff';
-    
-    const coordPattern = /[NS]\d{4,6}[WE]\d{5,7}/;
-    const coordPattern2= /\d{4,6}[NS]\d{5,7}[WE]/;
-    const coordPattern3= /\d{1,3}-\d{1,2}\.\d{1,2}[NS]\/\d{1,3}-\d{1,2}\.\d{1,2}[WE]/;
-    const coordPattern4= /\d{1,3}-\d{1,2}\.\d{1,2}[NS]\d{1,3}-\d{1,2}\.\d{1,2}[WE]/;
-    
-    let targ=text.replace(/{[^}]+}/g, '');
-    targ = targ.replace(/%[^%]+%/g, ''); 
-    targ = targ.replace(/[\r\n]+/g, '');
-    targ = targ.replace(/\s+/g, '');
-    
-    if (!coordPattern.test(targ)&&!coordPattern2.test(targ)&&!coordPattern3.test(targ)&&!coordPattern4.test(targ)) {
-        alert("请输入正确的航警，格式应包含有效的坐标\n（如：N394838E1005637-N391617E1005933-N392001E1021555-N395223E1021334\n或：074700N1200200E-081000N1203300E-081300N1203800E-071800N1212200E\n或：19-14.25N/112-28.12E、19-15.43N/112-56.63E、18-21.26N/112-59.02E和18-20.09N/112-30.66E）");
-        return;
-    }
-
+async function drawWarning() {
+    const input = document.getElementById('warningInput');
+    const text = input.value.trim();
     if (!text) {
-        alert("请填写内容！");
-        return;
-    }
-    
-    warningCount++;
-    const num = warningCount;
-    const notamId = `MANUAL-${num}`;
-
-    // 解析坐标并绘制
-    const parsedCoords = parseNotamCoordinates(text);
-    if (!parsedCoords || parsedCoords.length < 3) {
-        alert("无法解析足够的坐标点（至少需要3个）");
+        showNotification('请填写航警正文或坐标', 'error');
         return;
     }
 
-    // 绘制多边形
-    const polygon = L.polygon(parsedCoords, {
-        color: color,
-        fillColor: color,
-        fillOpacity: 0.3,
-        weight: 2
-    }).addTo(map);
-
-    // 使用统一的数据结构保存手动航警信息
-    const notamData = createNotamData({
-        id: notamId,
-        CODE: notamId,
-        COORDINATES: extractCoordinatesString(text),  // 提取坐标字符串
-        TIME: '',                     // 手动绘制暂不解析时间
-        PLATID: '',
-        SOURCE: 'MANUAL',
-        RAWMESSAGE: text,             // 保存原始输入文本
-        ALTITUDE: '',
-        ROCKET: '',
-        LAUNCH: '',
-        coords: parsedCoords,
-        color: color,
-        polygon: polygon
-    });
-    
-    manualNotams.push(notamData);
-    
-    manualVisibleState[notamId] = true;
-    manualPolygons.push(polygon);
-
-    // 更新手动航警列表
-    updateManualList();
-
-    // 清空输入框
-    document.getElementById('warningInput').value = '';
-    
-    // 将地图视图调整到新绘制的区域
-    map.fitBounds(polygon.getBounds());
-    
-    showNotification(`已添加手动航警 ${notamId}`, 'success');
-}
-
-// 对多边形坐标点进行排序（与scripts.js中的函数相同）
-function sortPolygonPointsManual(latlngs) {
-    if (latlngs.length < 3) return latlngs;
-    
-    // 计算中心点（质心）
-    let centerLat = 0, centerLng = 0;
-    for (let i = 0; i < latlngs.length; i++) {
-        centerLat += latlngs[i][0];
-        centerLng += latlngs[i][1];
-    }
-    centerLat /= latlngs.length;
-    centerLng /= latlngs.length;
-    
-    // 按照相对于中心点的极角排序
-    const sortedPoints = latlngs.slice().sort((a, b) => {
-        const angleA = Math.atan2(a[0] - centerLat, a[1] - centerLng);
-        const angleB = Math.atan2(b[0] - centerLat, b[1] - centerLng);
-        return angleA - angleB;
-    });
-    
-    return sortedPoints;
-}
-
-// 解析NOTAM坐标的辅助函数
-function parseNotamCoordinates(text) {
-    text = text.replace(/{[^}]+}/g, ''); 
-    text = text.replace(/%[^%]+%/g, ''); 
-    text = text.replace(/[\r\n]+/g, '');
-    text = text.replace(/\s+/g, '');
-    
-    const coorRegex = /[NS]\d{4,6}[WE]\d{5,7}(?:-[NS]\d{4,6}[WE]\d{5,7})*/g;
-    let coor = text.match(coorRegex);
-    
-    if(coor==null){
-        coor=processCoordinates(text);      
-    }
-    if(coor==null){
-        coor=processCoordinates2(text)
-    }
-    if(coor==null){
-        coor=processCoordinates3(text);
-    }
-    if(coor==null){
-        coor=processCoordinates4(text);
-    }
-    
-    if (!coor || coor.length === 0) return null;
-    
-    // 将坐标字符串转换为经纬度数组
-    const coordStr = coor[0];
-    const coordParts = coordStr.split('-');
-    const latLngs = [];
-    
-    for (let part of coordParts) {
-        const latLng = parseCoordString(part);
-        if (latLng) {
-            latLngs.push(latLng);
+    const button = document.getElementById('btnDrawManual');
+    const color = document.getElementById('manualColorPicker')?.value || '#0078ff';
+    button.disabled = true;
+    try {
+        const response = await fetch('/parse_areas', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text})
+        });
+        const result = await response.json();
+        if (!response.ok) {
+            showNotification(result.error || '无法解析航警区域', 'error');
+            return;
         }
-    }
-    
-    // 对坐标点排序，确保多边形是凸的或至少是合理的形状
-    if (latLngs.length >= 3) {
-        return sortPolygonPointsManual(latLngs);
-    }
-    
-    return latLngs;
-}
-
-// 从文本中提取坐标字符串用于存储
-function extractCoordinatesString(text) {
-    text = text.replace(/{[^}]+}/g, ''); 
-    text = text.replace(/%[^%]+%/g, ''); 
-    text = text.replace(/[\r\n]+/g, '');
-    text = text.replace(/\s+/g, '');
-    
-    const coorRegex = /[NS]\d{4,6}[WE]\d{5,7}(?:-[NS]\d{4,6}[WE]\d{5,7})*/g;
-    let coor = text.match(coorRegex);
-    
-    if(coor==null){
-        coor=processCoordinates(text);      
-    }
-    if(coor==null){
-        coor=processCoordinates2(text)
-    }
-    if(coor==null){
-        coor=processCoordinates3(text);
-    }
-    if(coor==null){
-        coor=processCoordinates4(text);
-    }
-    
-    if (!coor || coor.length === 0) return '';
-    return coor[0];
-}
-
-// 解析单个坐标字符串（如 N394838E1005637）
-function parseCoordString(coordStr) {
-    // 匹配 N/S + 数字 + E/W + 数字 格式
-    const match = coordStr.match(/([NS])(\d{4,6})([EW])(\d{5,7})/);
-    if (!match) return null;
-    
-    const latDir = match[1];
-    const latStr = match[2];
-    const lngDir = match[3];
-    const lngStr = match[4];
-    
-    // 解析纬度
-    let lat;
-    if (latStr.length === 6) { // DDMMSS
-        const deg = parseInt(latStr.substring(0, 2));
-        const min = parseInt(latStr.substring(2, 4));
-        const sec = parseInt(latStr.substring(4, 6));
-        lat = deg + min/60 + sec/3600;
-    } else if (latStr.length === 4) { // DDMM
-        const deg = parseInt(latStr.substring(0, 2));
-        const min = parseInt(latStr.substring(2, 4));
-        lat = deg + min/60;
-    }
-    if (latDir === 'S') lat = -lat;
-    
-    // 解析经度
-    let lng;
-    if (lngStr.length === 7) { // DDDMMSS
-        const deg = parseInt(lngStr.substring(0, 3));
-        const min = parseInt(lngStr.substring(3, 5));
-        const sec = parseInt(lngStr.substring(5, 7));
-        lng = deg + min/60 + sec/3600;
-    } else if (lngStr.length === 5) { // DDDMM
-        const deg = parseInt(lngStr.substring(0, 3));
-        const min = parseInt(lngStr.substring(3, 5));
-        lng = deg + min/60;
-    }
-    if (lngDir === 'W') lng = -lng;
-    
-    return [lat, lng];
-}
-function processCoordinates(textCforCoor) {
-    const subPattern = /\d{6}[NS]\d{7}[WE]/g;
-    const tmp = textCforCoor.match(subPattern) || [];
-    if (tmp.length > 2) {
-        const result = tmp.map(m => 
-            m[6] + m.substring(0, 6) + m.slice(-1) + m.substring(7, m.length - 1)
-        ).join('-');
-        let st=[];
-        st[0]=result;
-        return st;
-    }
-    return null;
-}
-function processCoordinates2(textCforCoor) {
-    const subPattern = /\d{4}[NS]\d{5}[WE]/g;
-    const tmp = textCforCoor.match(subPattern) || [];
-    if (tmp.length > 2) {
-        const result = tmp.map(m => 
-            m[4] + m.substring(0, 4) + m.slice(-1) + m.substring(5, m.length - 1)
-        ).join('-');
-        let st=[];
-        st[0]=result;
-        return st;
-    }
-    return null;
-}
-function processCoordinates3(textCforCoor) {
-    const subPattern = /\d{1,3}-\d{1,2}\.\d{1,2}[NS]\/\d{1,3}-\d{1,2}\.\d{1,2}[WE]/g;
-    const tmp = textCforCoor.match(subPattern) || [];
-    
-    if (tmp.length >= 1) {
-        const result = tmp.map(coord => {
-            const parts = coord.split('/');
-            const latPart = parts[0];
-            const lonPart = parts[1];
-            const latMatch = latPart.match(/(\d{1,3})-(\d{1,2})\.(\d{1,2})([NS])/);
-            const latDeg = parseInt(latMatch[1]);
-            const latMinInt = parseInt(latMatch[2]);
-            const latMinDec = parseInt(latMatch[3]);
-            const latDir = latMatch[4];
-            const latSec = Math.round(latMinDec * 60 / 100);
-            const lonMatch = lonPart.match(/(\d{1,3})-(\d{1,2})\.(\d{1,2})([WE])/);
-            const lonDeg = parseInt(lonMatch[1]);
-            const lonMinInt = parseInt(lonMatch[2]);
-            const lonMinDec = parseInt(lonMatch[3]);
-            const lonDir = lonMatch[4];
-            const lonSec = Math.round(lonMinDec * 60 / 100);
-            const formattedLat = latDir + 
-                latDeg.toString().padStart(2, '0') + 
-                latMinInt.toString().padStart(2, '0') + 
-                latSec.toString().padStart(2, '0');
-            const formattedLon = lonDir + 
-                lonDeg.toString().padStart(3, '0') + 
-                lonMinInt.toString().padStart(2, '0') + 
-                lonSec.toString().padStart(2, '0');
-            return formattedLat + formattedLon;
-        }).join('-');
-        let st = [];
-        st[0] = result;
-        return st;
-    }
-    return null;
-}
-function processCoordinates4(textCforCoor) {
-    const subPattern = /\d{1,3}-\d{1,2}\.\d{1,2}[NS]\d{1,3}-\d{1,2}\.\d{1,2}[WE]/g;
-    const tmp = textCforCoor.match(subPattern) || [];
-    if (tmp.length >= 1) {
-        const result = tmp.map(coord => {
-            const parts = coord.match(/(\d{1,3}-\d{1,2}\.\d{1,2}[NS])(\d{1,3}-\d{1,2}\.\d{1,2}[WE])/);
-            const latPart = parts[1];
-            const lonPart = parts[2];
-            const latMatch = latPart.match(/(\d{1,3})-(\d{1,2})\.(\d{1,2})([NS])/);
-            const latDeg = parseInt(latMatch[1]);
-            const latMinInt = parseInt(latMatch[2]);
-            const latMinDec = parseInt(latMatch[3]);
-            const latDir = latMatch[4];
-            const latSec = Math.round(latMinDec * 60 / 100);
-            const lonMatch = lonPart.match(/(\d{1,3})-(\d{1,2})\.(\d{1,2})([WE])/);
-            const lonDeg = parseInt(lonMatch[1]);
-            const lonMinInt = parseInt(lonMatch[2]);
-            const lonMinDec = parseInt(lonMatch[3]);
-            const lonDir = lonMatch[4];
-            const lonSec = Math.round(lonMinDec * 60 / 100);
-            const formattedLat = latDir + 
-                latDeg.toString().padStart(2, '0') + 
-                latMinInt.toString().padStart(2, '0') + 
-                latSec.toString().padStart(2, '0');
-            const formattedLon = lonDir + 
-                lonDeg.toString().padStart(3, '0') + 
-                lonMinInt.toString().padStart(2, '0') + 
-                lonSec.toString().padStart(2, '0');
-            return formattedLat + formattedLon;
-        }).join('-');
-        let st = [];
-        st[0] = result;
-        return st;
-    }
-    return null;
-}
-function selfDrawNot(text, color, num) {
-    text = text.replace(/{[^}]+}/g, ''); 
-    text = text.replace(/%[^%]+%/g, ''); 
-    text = text.replace(/[\r\n]+/g, '');
-    text = text.replace(/\s+/g, '');
-    const coorRegex = /[NS]\d{4,6}[WE]\d{5,7}(?:-[NS]\d{4,6}[WE]\d{5,7})*/g;
-    // const timeRegex = /(\d{2} [A-Z]{3} \d{2}:\d{2} \d{4} UNTIL \d{2} [A-Z]{3} \d{2}:\d{2} \d{4})/;
-    const codeRegex = /A\d{4}\/\d{2}/g;
-    let coor = text.match(coorRegex);
-    if(coor==null){
-        coor=processCoordinates(text);      
-    }
-    if(coor==null){
-        coor=processCoordinates2(text)
-    }
-    if(coor==null){
-        coor=processCoordinates3(text);
-    }
-    if(coor==null){
-        coor=processCoordinates4(text);
-    }
-    // alert(coor);
-    // const time = text.match(timeRegex);
-    const code = text.match(codeRegex);
-    // alert(coor[0]);
-    drawNot(coor[0], "null", code, null, num, color, 1, "", "MANUAL");
-}
-
-function notRemove(num) {
-    if (polygon[num]) {
-        map.removeLayer(polygon[num]);
-        polygon[num] = null;
+        const style = {color, fillColor: color, fillOpacity: 0.3, weight: 2};
+        const layers = result.areas.map(area => createNotamLayer(area, area.coordinates, style));
+        const polygon = L.featureGroup(layers).addTo(map);
+        const notamId = `MANUAL-${++warningCount}`;
+        layers.forEach((layer, i) => bindNotamPopup(layer, {
+            title: '手动航警', code: notamId, raw: text, coordinates: result.areas[i].coordinates
+        }));
+        manualNotams.push(createNotamData({
+            id: notamId,
+            CODE: notamId,
+            COORDINATES: result.areas.map(area => area.coordinates).join('\n'),
+            RAWMESSAGE: text,
+            color,
+            polygon
+        }));
+        manualVisibleState[notamId] = true;
+        updateManualList();
+        if (input.value.trim() === text) input.value = '';
+        map.fitBounds(polygon.getBounds());
+        showNotification(`已添加手动航警 ${notamId}`, 'success');
+    } catch (error) {
+        console.error('解析手动航警失败', error);
+        showNotification('无法连接本地解析服务', 'error');
+    } finally {
+        button.disabled = false;
     }
 }
 
@@ -582,7 +282,7 @@ function copyManualCoords(notamId) {
     const notam = manualNotams.find(n => n.id === notamId);
     if (notam) {
         // 使用原始输入文本（如果有），否则回退到格式化坐标
-        const coordsStr = notam.RAWMESSAGE || notam.coords.map(c => `${c[0]}, ${c[1]}`).join('\n');
+        const coordsStr = notam.RAWMESSAGE || notam.COORDINATES;
         
         if (typeof handleCopy === 'function') {
             handleCopy(coordsStr);
@@ -648,7 +348,6 @@ function removeAllManual() {
         });
         manualNotams = [];
         manualVisibleState = {};
-        manualPolygons = [];
         warningCount = 0;
         updateManualList();
         showNotification('已清空所有手动航警', 'success');

@@ -364,7 +364,7 @@ function redrawAllNotams() {
     
     for (var i = 0; i < dict.NUM; i++) {
         var color = getColorForCode(dict.CODE[i]);
-        drawNot(dict.COORDINATES[i], dict.TIME[i], dict.CODE[i], dict.ALTITUDE[i], i, color, 0, dict.RAWMESSAGE[i], dict.SOURCE?.[i] || 'DINS');
+        drawNot(dict.COORDINATES[i], dict.TIME[i], dict.CODE[i], i, color, 0, dict.RAWMESSAGE[i], dict.SOURCE?.[i] || 'DINS', dict.GEOMETRY?.[i]);
         
         if (currentVisibleState[i] === false && polygonAuto[i]) {
             map.removeLayer(polygonAuto[i]);
@@ -483,7 +483,7 @@ function drawLaunchsite(lat, lng, title, content, iconUrl) {
         popupAnchor: [0, -40]
     });
 
-    var marker = L.marker([lat, lng], {
+    var marker = worldMarker([lat, lng], {
         icon: icon
     }).addTo(map);
     
@@ -502,7 +502,7 @@ function drawLandingZone(lat, lng, title, content, iconUrl){
         iconAnchor: [10, 10],
         popupAnchor: [0, -40]
     });
-    var marker = L.marker([lat, lng], {
+    var marker = worldMarker([lat, lng], {
         icon: icon
     }).addTo(map);
     
@@ -539,7 +539,7 @@ function initHainanSites(sites) {
         "<b><a href='https://baike.baidu.com/item/海南商业航天发射场' target='_blank' style='text-decoration: none; font-weight: bold;'>海南商业航天发射场</a>（Hainan Commercial Spacecraft Launch Site）</b>，" +
         "是我国首个开工建设的商业航天发射场，由海南国际商业航天发射有限公司投建，致力于打造国际一流、市场化运营的航天发射场，进一步提升我国民商运载火箭发射能力。";
     
-    hainanMergedMarker = L.marker([centerLat, centerLng], {
+    hainanMergedMarker = worldMarker([centerLat, centerLng], {
         icon: mergedIcon
     });
     
@@ -556,7 +556,7 @@ function initHainanSites(sites) {
         popupAnchor: [0, -40]
     });
     
-    const wenchangMarker = L.marker([wenchang.lat, wenchang.lng], {
+    const wenchangMarker = worldMarker([wenchang.lat, wenchang.lng], {
         icon: wenchangIcon
     });
     
@@ -572,7 +572,7 @@ function initHainanSites(sites) {
         popupAnchor: [0, -40]
     });
     
-    const commercialMarker = L.marker([commercial.lat, commercial.lng], {
+    const commercialMarker = worldMarker([commercial.lat, commercial.lng], {
         icon: commercialIcon
     });
     
@@ -631,18 +631,15 @@ function highlightNotam(index, color) {
     if (!dict || index >= dict.NUM) return;
 
     try {
-        const coordinates = dict.COORDINATES[index];
-        const points = parseCoordinatesToPoints(coordinates);
-
-        if (points && points.length > 0) {
-            highlightPolygon = L.polygon(points, {
-                color: color,
-                weight: 3,
-                opacity: 1,
-                fillColor: color,
-                fillOpacity: 0.6
-            }).addTo(map);
-        }
+        const layer = createNotamLayer(dict.GEOMETRY?.[index], dict.COORDINATES[index], {
+            color,
+            interactive: false,
+            weight: 3,
+            opacity: 1,
+            fillColor: color,
+            fillOpacity: 0.6
+        });
+        if (layer) highlightPolygon = layer.addTo(map);
     } catch (e) {
         console.error('高亮绘制失败', e);
     }
@@ -692,201 +689,33 @@ function sortPolygonPoints(latlngs) {
     return sortedPoints;
 }
 
-// 格式化弹窗中的多段时间显示（支持展开/收起）
-function formatPopupTimeDisplay(timee, numm) {
-    if (!timee || timee === 'null' || timee === 'undefined') {
-        return '时间未知';
-    }
-    
-    // 检查是否包含多段时间
-    const segments = timee.split(';');
-    
-    if (segments.length === 1) {
-        // 单段时间，直接转换显示
-        return convertTime(timee);
-    }
-    
-    // 多段时间：转换所有时间段
-    const convertedSegments = [];
-    for (const segment of segments) {
-        const trimmed = segment.trim();
-        if (trimmed) {
-            const converted = convertTime(trimmed);
-            if (converted && converted !== '时间未知') {
-                convertedSegments.push(converted);
-            }
-        }
-    }
-    
-    if (convertedSegments.length === 0) {
-        return '时间未知';
-    }
-    
-    // 主窗口（第一个）
-    const mainTime = convertedSegments[0];
-    
-    if (convertedSegments.length === 1) {
-        return mainTime;
-    }
-    
-    // 备用窗口（其余的）
-    const alternateCount = convertedSegments.length - 1;
-    const alternateHtml = convertedSegments.slice(1).map((t, i) => 
-        `<div class="alternate-time-item">备用${i + 1}: ${t}</div>`
-    ).join('');
-    
-    // 返回带展开/收起按钮的HTML
-    return `<div class="main-time">${mainTime}</div>` +
-           `<button class="toggle-alternate-btn" data-popup-index="${numm}" onclick="toggleAlternateTime(${numm}, event)">` +
-           `显示${alternateCount}个备用窗口</button>` +
-           `<div class="alternate-times" id="alternate-times-${numm}" style="display: none;">` +
-           alternateHtml +
-           `</div>`;
-}
-
-// 切换备用窗口显示
-function toggleAlternateTime(idx, event) {
-    event.stopPropagation();
-    const container = document.getElementById('alternate-times-' + idx);
-    const btn = event.target;
-    
-    if (!container) return;
-    
-    if (container.style.display === 'none') {
-        container.style.display = 'block';
-        // 更新按钮文字
-        const count = container.querySelectorAll('.alternate-time-item').length;
-        btn.textContent = '收起备用窗口';
-    } else {
-        container.style.display = 'none';
-        const count = container.querySelectorAll('.alternate-time-item').length;
-        btn.textContent = `显示${count}个备用窗口`;
-    }
-}
-
 // 绘制NOTAM多边形
-function drawNot(COORstrin, timee, codee, altitude, numm, col, is_self, rawmessage, source) {
-    var pos = COORstrin;
-    var timestr = is_self ? null : formatPopupTimeDisplay(timee, numm);
-    var stPos = 0;
-    var arr = [];
-    
-    // 判断是否为海警来源
-    var isMarineWarning = source && (source === 'MSA_NAV' || source === 'MSI_NAV');
-    
-    for (var i = 0; i < pos.length; i++) {
-        if (pos[i] == "-") {
-            var tmp = pos.substring(stPos, i);
-            arr.push(tmp);
-            stPos = i + 1;
-        }
+function createNotamLayer(geometry, coordinates, options, sortLegacyPolygon = false) {
+    if (geometry?.type === 'circle') {
+        return worldCircle(geometry.center, {...options, radius: geometry.radiusMeters});
     }
-    arr.push(pos.substring(stPos, pos.length));
-    
-    var _TheArray = [];
-    for (var i = 0; i < arr.length; i++) {
-        _TheArray.push(pullOut(arr[i]));
-    }
-    
-    var latlngs = [];
-    for (var i = 0; i < _TheArray.length; i++) {
-        if (_TheArray[i]) {
-            latlngs.push([_TheArray[i][1], _TheArray[i][0]]); // [lat, lng]
-        }
-    }
+    let points = geometry?.points ?? parseCoordinatesToPoints(coordinates);
+    if (points.length < 3) return null;
+    if (!geometry && sortLegacyPolygon) points = sortPolygonPoints(points);
+    return worldPolygon(points, options, geometry);
+}
 
-    if (latlngs.length < 3) return; // 至少需要3个点才能绘制多边形
-
-    // 对坐标点排序，确保多边形是凸的或至少是合理的形状
-    latlngs = sortPolygonPoints(latlngs);
-
-    // 创建多边形
-    var tmpPolygon = L.polygon(latlngs, {
+function drawNot(COORstrin, timee, codee, numm, col, is_self, rawmessage, source, geometry) {
+    const isMarineWarning = source === 'MSA_NAV' || source === 'MSI_NAV';
+    const tmpPolygon = createNotamLayer(geometry, COORstrin, {
         color: col,
         weight: 1,
         opacity: 1,
         fillColor: col,
         fillOpacity: 0.5
-    }).addTo(map);
+    }, true);
+    if (!tmpPolygon) return;
+    tmpPolygon.addTo(map);
 
-    // 创建弹出窗口内容
-    var popupContent;
-    if (!is_self) {
-        // 根据来源确定标题和标签
-        var title = isMarineWarning ? "海警信息" : "NOTAM信息";
-        var codeLabel = isMarineWarning ? "海警编号:" : "航警编号:";
-        var rawButtonText = isMarineWarning ? "复制原始海警" : "复制原始航警";
-        
-        popupContent = "<div class='notam-popup'>" +
-            "<div class='notam-popup-header'>" +
-            "<h4>" + title + "</h4>" +
-            "</div>" +
-            "<div class='notam-popup-body'>" +
-            "<div class='popup-info-row'>" +
-            "<span class='popup-label'>持续时间:</span>" +
-            "<span class='popup-value'>" + timestr + "</span>" +
-            "</div>";
-        
-        // 海警显示单列编号，航警显示编号和高度两列
-        if (isMarineWarning) {
-            popupContent += "<div class='popup-info-row'>" +
-                "<span class='popup-label'>" + codeLabel + "</span>" +
-                "<span class='popup-value'>" + codee + "</span>" +
-                "</div>";
-        } else {
-            popupContent += "<div class='popup-info-row row-horizontal'>" +
-                "<div class='popup-col'>" +
-                "<span class='popup-label'>" + codeLabel + "</span>" +
-                "<span class='popup-value'>" + codee + "</span>" +
-                "</div>" +
-                "<div class='popup-col'>" +
-                "<span class='popup-label'>航警高度:</span>" +
-                "<span class='popup-value'>" + altitude + "</span>" +
-                "</div>" +
-                "</div>";
-        }
-        
-        popupContent += "<div class='notam-popup-buttons'>" +
-            "<button class='copy copy-coord' onclick=\"handleCopy('" + COORstrin + "')\">复制坐标</button>" +
-            "<button class='copy copy-raw' data-raw-index='" + numm + "'>" + rawButtonText + "</button>" +
-            "</div>" +
-            "</div>";
-    } else {
-        popupContent = "<div class='notam-popup'>" +
-            "<div class='notam-popup-header'>" +
-            "<h4>用户绘制落区</h4>" +
-            "</div>" +
-            "<div class='notam-popup-body'>" +
-            "<div class='popup-info-row'>" +
-            "<span class='popup-value'>航警" + numm + "</span>" +
-            "</div>" +
-            "</div>" +
-            "<div class='notam-popup-buttons'>" +
-            "<button class='copy' onclick=\"handleCopy('" + COORstrin + "')\">复制坐标</button>" +
-            "</div>" +
-            "</div>";
-    }
-
-    tmpPolygon.bindPopup(popupContent, {
-        maxWidth: 300,
-        className: 'notam-info-popup'
-    });
-    
-    // 为弹出窗口添加打开事件监听器，处理复制原始航警按钮
-    tmpPolygon.on('popupopen', function(e) {
-        const popup = e.popup;
-        const popupElement = popup.getElement();
-        if (popupElement) {
-            const rawBtn = popupElement.querySelector('.copy-raw[data-raw-index]');
-            if (rawBtn) {
-                const idx = parseInt(rawBtn.getAttribute('data-raw-index'));
-                rawBtn.onclick = function(event) {
-                    event.stopPropagation();
-                    const raw = dict?.RAWMESSAGE?.[idx] || '';
-                    handleCopy(raw);
-                };
-            }
-        }
+    bindNotamPopup(tmpPolygon, {
+        title: is_self ? '用户绘制落区' : (isMarineWarning ? '海警信息' : 'NOTAM信息'),
+        code: codee, time: timee, raw: rawmessage, coordinates: COORstrin, marine: isMarineWarning,
+        fir: is_self ? null : dict?.FIR?.[numm]
     });
 
     // 存储多边形引用

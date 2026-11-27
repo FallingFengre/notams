@@ -5,6 +5,7 @@ import time
 import webbrowser
 
 import config
+from service.fetch.faa_browser import get_session, reset_session
 from service.server import start_flask
 
 
@@ -38,7 +39,8 @@ def wait_for_server(host, port, timeout=5):
     return False
 
 
-if __name__ == '__main__':
+def main():
+    get_session().warm_up()
     flask_thread = threading.Thread(target=start_flask, daemon=True)
     flask_thread.start()
 
@@ -73,3 +75,10 @@ if __name__ == '__main__':
         finally:
             print("窗口已关闭，程序退出")
             sys.exit(0)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    finally:
+        reset_session()

@@ -19,6 +19,7 @@ Chrome（含 stealth 补丁、Patchright）都会被拦截，只有真实浏览�
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import config
 
@@ -73,24 +74,40 @@ async (queries) => {
 class FaaBrowserSession:
     """FAA NOTAM 浏览器会话。
 
-    所有 Playwright 操作在同一个线程（创建线程）中执行，通过线程锁保证。
+    所有 Playwright 操作由同一个工作线程执行。
     批量查询在浏览器 JS 层面并行（Promise.all），不跨 greenlet 边界。
     """
 
     def __init__(self):
         self._lock = threading.Lock()
+        self._executor = None
         self._pw = None
         self._browser = None
         self._context = None
         self._page = None       # 主 page，用于单个/批量查询
-        self._challenge_page = None  # 专门保持 challenge 连接的 page
         self._initialized = False
-        self._owner_thread = None
+
+    def _submit(self, operation, *args):
+        with self._lock:
+            if self._executor is None:
+                self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='faa-browser')
+            return self._executor.submit(operation, *args)
+
+    def warm_up(self):
+        """在后台打开查询页，随后由同一工作线程处理查询。"""
+        self._submit(self._warm_up)
+
+    def _warm_up(self):
+        try:
+            self._ensure_ready()
+        except Exception as exc:
+            print(f'[FAA] 后台初始化失败，历史查询时将重试：{exc}')
 
     # ========== 初始化 ==========
 
     def _launch(self):
         """启动 Camoufox 无头浏览器，完成 Akamai challenge。必须在同一线程调用。"""
+        launch_started = time.perf_counter()
         self._close_unsafe()
 
         from playwright.sync_api import sync_playwright
@@ -99,52 +116,40 @@ class FaaBrowserSession:
         self._pw = sync_playwright().start()
 
         # Camoufox：无窗口 + 反检测指纹，能过 Akamai
-        browser = None
         try:
             opts = launch_options(headless=True)
-            browser = self._pw.firefox.launch(**opts)
+            self._browser = self._pw.firefox.launch(**opts)
             print('[FAA] 已启动 Camoufox 无头浏览器')
         except Exception as e:
-            try:
-                if self._pw:
-                    self._pw.stop()
-            except Exception:
-                pass
-            self._pw = None
+            self._close_unsafe()
             raise RuntimeError(
                 f'无法启动 Camoufox: {e}\n'
                 '请先执行: pip install camoufox  然后  python -m camoufox fetch。')
 
         try:
-            context = browser.new_context()
+            context = self._browser.new_context()
             page = context.new_page()
 
             page.goto(NSAPP_URL, timeout=60000, wait_until='domcontentloaded')
-            page.wait_for_timeout(config.PW_PAGE_WAIT * 1000)
+            self._wait_for_page_idle(page)
             content = page.content()
             if 'Access Denied' in content:
-                browser.close()
                 raise RuntimeError('页面仍被 Akamai 拒绝，可能需要更换网络出口')
 
-            print('[FAA] Akamai challenge 通过，会话已就绪')
+            print(f'[FAA] 查询页就绪，浏览器启动耗时 {time.perf_counter() - launch_started:.1f}s')
 
         except Exception:
-            try:
-                browser.close()
-            except Exception:
-                pass
+            self._close_unsafe()
             raise
 
-        self._browser = browser
         self._context = context
         self._page = page
         self._initialized = True
-        self._owner_thread = threading.current_thread()
 
     # ========== 查询 ==========
 
     def _do_single(self, payload):
-        """执行单次查询（必须在持有 lock 的 owner thread 中调用）。"""
+        """在浏览器工作线程上执行单次查询。"""
         for attempt in range(1, config.PW_MAX_RETRIES + 1):
             try:
                 result = self._page.evaluate(FETCH_JS, payload)
@@ -253,7 +258,7 @@ class FaaBrowserSession:
         """重新过 Akamai challenge。"""
         try:
             self._page.goto(NSAPP_URL, timeout=60000, wait_until='domcontentloaded')
-            self._page.wait_for_timeout(config.PW_PAGE_WAIT * 1000)
+            self._wait_for_page_idle(self._page)
             if 'Access Denied' in self._page.content():
                 print('[FAA] challenge 仍然失败，完整重启...')
                 self._restart()
@@ -261,6 +266,20 @@ class FaaBrowserSession:
                 print('[FAA] challenge 重新通过')
         except Exception:
             self._restart()
+
+    @staticmethod
+    def _wait_for_page_idle(page):
+        """等页面自行进入 network-idle，超过配置时限后交由真实查询验证会话。"""
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        try:
+            page.wait_for_load_state(
+                'networkidle',
+                timeout=max(1, config.PW_PAGE_WAIT * 1000),
+            )
+        except PlaywrightTimeoutError:
+            # 部分页面持续发送后台请求。真正的 FAA 查询会继续验证 challenge 状态。
+            pass
 
     def _is_network_error(self, msg):
         msg_lower = msg.lower()
@@ -287,17 +306,22 @@ class FaaBrowserSession:
 
     def close(self):
         with self._lock:
-            self._close_unsafe()
+            if self._executor is not None:
+                self._executor.submit(self._close_unsafe)
+                self._executor.shutdown(wait=True)
+                self._executor = None
 
     # ========== 公开接口 ==========
 
     def search(self, payload):
-        """单次 FAA search API 调用。线程安全（排队等锁）。"""
-        with self._lock:
-            self._ensure_ready()
-            data = self._do_single(payload)
+        """单次 FAA search API 调用。"""
+        data = self._submit(self._search, payload).result()
         time.sleep(0.1)  # 轻微降频
         return data
+
+    def _search(self, payload):
+        self._ensure_ready()
+        return self._do_single(payload)
 
     def batch_search(self, queries):
         """批量 FAA search API 调用。
@@ -307,10 +331,11 @@ class FaaBrowserSession:
 
         浏览器 JS 中用 Promise.all() 并行所有 fetch，速度快且不跨 greenlet。
         """
-        with self._lock:
-            self._ensure_ready()
-            results = self._do_batch(queries)
-        return results
+        return self._submit(self._batch_search, queries).result()
+
+    def _batch_search(self, queries):
+        self._ensure_ready()
+        return self._do_batch(queries)
 
     def search_with_pagination(self, payload, max_pages=100):
         """带分页的查询，返回聚合结果列表。
@@ -318,20 +343,22 @@ class FaaBrowserSession:
         适配现有 fetch_one 的分页逻辑：每页 30 条，持续到 num < 30。
         返回与原来兼容的 JSON data dict（含 notamList）。
         """
-        with self._lock:
-            self._ensure_ready()
-            all_notams = []
-            num = 30
-            page = 0
-            while num == 30 and page < max_pages:
-                p = dict(payload)
-                p['offset'] = str(page * 30)
-                data = self._do_single(p)
-                notams = data.get('notamList', [])
-                num = len(notams)
-                all_notams.extend(notams)
-                page += 1
-            return {'notamList': all_notams}
+        return self._submit(self._search_with_pagination, payload, max_pages).result()
+
+    def _search_with_pagination(self, payload, max_pages):
+        self._ensure_ready()
+        all_notams = []
+        num = 30
+        page = 0
+        while num == 30 and page < max_pages:
+            p = dict(payload)
+            p['offset'] = str(page * 30)
+            data = self._do_single(p)
+            notams = data.get('notamList', [])
+            num = len(notams)
+            all_notams.extend(notams)
+            page += 1
+        return {'notamList': all_notams}
 
 
 # ---------- 全局单例 ----------

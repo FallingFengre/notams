@@ -145,6 +145,10 @@ function getSourceDisplay(source) {
     if (!source) return '';
     
     const sourceMap = {
+        'DAIP': {
+            name: 'DAIP NOTAM',
+            url: 'https://www.daip.jcs.mil/daip/mobile/index'
+        },
         'FNS_NOTAM': {
             name: 'FAA NOTAM',
             url: 'https://notams.aim.faa.gov/notamSearch/'
@@ -622,10 +626,7 @@ function hideAllArchiveNotams() {
 function locateToNotam(index) {
     if (!dict || index >= dict.NUM) return;
     try {
-        const points = parseCoordinatesToPoints(dict.COORDINATES[index]);
-        if (points && points.length > 0) {
-            const bounds = L.latLngBounds(points);
-            map.fitBounds(bounds, { padding: [80, 80], maxZoom: 6 });
-        }
+        const layer = polygonAuto[index];
+        if (layer) map.fitBounds(layer.getBounds(), {padding: [80, 80], maxZoom: 6});
     } catch (e) { console.error(e); }
 }

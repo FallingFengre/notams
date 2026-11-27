@@ -4,12 +4,18 @@ function closeLoadingModal() {
     loadingModal.style.display = 'none';
 }
 
+function showSourceErrors(data) {
+    const sources = Object.keys(data.ERRORS || {});
+    if (sources.length) showNotification(sources.join('、') + ' 查询失败，详情见运行日志');
+}
+
 // 页面加载即获取一次
 loadingModal.style.display = 'block';
 fetch('/fetch')
     .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(data => {
         dict = data;
+        showSourceErrors(data);
         assignGroupColors(dict.CLASSIFY || {});
         drawAllAutoNotams();
         updateSidebar();
@@ -32,12 +38,12 @@ function drawAllAutoNotams() {
             dict.COORDINATES[i],
             dict.TIME[i],
             dict.CODE[i],
-            dict.ALTITUDE[i],
             i,
             col,
             0,
             dict.RAWMESSAGE?.[i] || "",
-            dict.SOURCE?.[i] || 'DINS'
+            dict.SOURCE?.[i] || 'DINS',
+            dict.GEOMETRY?.[i]
         );
         visibleState[i] = true;
     }
@@ -61,6 +67,7 @@ function refetchData() {
         .then(r => r.json())
         .then(data => {
             dict = data;
+            showSourceErrors(data);
             assignGroupColors(dict.CLASSIFY || {});
             drawAllAutoNotams();
             updateSidebar();
